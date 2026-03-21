@@ -1,0 +1,20 @@
+[Unit]
+Description=BetGuess Server (Node.js/Express)
+After=network.target football-api.service
+Wants=football-api.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/apps/betguess/server
+ExecStart=/usr/bin/node dist/index.js
+Environment="NODE_ENV=production"
+EnvironmentFile=/opt/apps/betguess/server/.env
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

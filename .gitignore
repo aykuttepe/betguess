@@ -1,0 +1,31 @@
+node_modules
+dist
+
+# Logs
+*.log
+*.err.log
+*.out.log
+
+# Temp files
+temp.txt
+temp_*.json
+
+# Cloudflare tunnel logs
+cf-tunnel.log
+cloudflared*.log
+
+# SQLite databases
+*.db
+*.db-wal
+*.db-shm
+
+# Environment
+.env
+.env.*
+.env.local
+
+# WhatsApp auth session (browser cache)
+server/whatsapp_auth/
+
+# Build output
+server/dist/
