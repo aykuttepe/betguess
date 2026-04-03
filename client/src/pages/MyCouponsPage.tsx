@@ -321,6 +321,27 @@ export default function MyCouponsPage() {
     return gradeCouponsLive(currentKupons, liveProgram);
   }, [liveProgram, couponInsights]);
 
+  // Deduplicate liveGrades by selection signature
+  const dedupedLiveGrades = useMemo(() => {
+    const dedupMap = new Map<string, { grade: typeof liveGrades[0]; count: number }>();
+    for (const g of liveGrades) {
+      const sig = g.matchDetails
+        .map(md => `${md.matchNo}:${[...md.selection].sort().join('')}`)
+        .join('|');
+      const existing = dedupMap.get(sig);
+      if (existing) {
+        existing.count++;
+      } else {
+        dedupMap.set(sig, { grade: g, count: 1 });
+      }
+    }
+    return Array.from(dedupMap.values())
+      .sort((a, b) => {
+        if (b.grade.hitCount !== a.grade.hitCount) return b.grade.hitCount - a.grade.hitCount;
+        return a.grade.missCount - b.grade.missCount;
+      });
+  }, [liveGrades]);
+
   const liveSummary = useMemo(() => {
     if (!liveProgram || liveGrades.length === 0) return null;
     return summarizeLiveGrades(liveGrades, liveProgram.finishedCount, liveProgram.notStartedCount + liveProgram.inProgressCount);
@@ -504,8 +525,8 @@ export default function MyCouponsPage() {
                 loading={liveLoading}
               />
               <div className="space-y-2">
-                {liveGrades.map((grade, i) => (
-                  <LiveCouponCard key={grade.kuponId} grade={grade} index={i} />
+                {dedupedLiveGrades.map(({ grade, count }, i) => (
+                  <LiveCouponCard key={`${grade.kuponId}-${i}`} grade={grade} index={i} count={count} />
                 ))}
               </div>
             </>

@@ -3468,6 +3468,16 @@ body {
 }
 .live-coupon-index { font-size: 0.7rem; color: #64748b; }
 .live-coupon-id { font-size: 0.7rem; color: #94a3b8; font-family: monospace; }
+.live-coupon-count-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  background: #a855f720;
+  color: #c084fc;
+  border: 1px solid #a855f730;
+  white-space: nowrap;
+}
 
 .live-coupon-stats {
   display: flex;

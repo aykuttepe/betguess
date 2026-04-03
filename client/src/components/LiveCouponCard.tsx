@@ -4,9 +4,10 @@ import { LiveCouponGrade } from '../lib/live-grading';
 interface Props {
   grade: LiveCouponGrade;
   index: number;
+  count?: number;
 }
 
-export default function LiveCouponCard({ grade, index }: Props) {
+export default function LiveCouponCard({ grade, index, count = 1 }: Props) {
   const [expanded, setExpanded] = useState(false);
 
   const borderClass = grade.missCount === 0
@@ -27,7 +28,9 @@ export default function LiveCouponCard({ grade, index }: Props) {
       >
         <div className="live-coupon-left">
           <span className="live-coupon-index">#{index + 1}</span>
-          <span className="live-coupon-id">{grade.kuponId.substring(0, 8)}</span>
+          {count > 1 && (
+            <span className="live-coupon-count-badge">×{count} adet</span>
+          )}
         </div>
 
         <div className="live-coupon-stats">
