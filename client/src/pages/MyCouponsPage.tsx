@@ -228,11 +228,11 @@ export default function MyCouponsPage() {
       }
     }
 
-    // Deduplicate: group by coupon id + selection signature
+    // Deduplicate: group by selection signature (across coupons)
     const seen = new Map<string, { coupon: CouponRow; kolon: KolonGrade; count: number }>();
     for (const item of all) {
-      const sig = item.coupon.id + '|' + item.kolon.matchDetails
-        .map(md => `${md.matchNo}:${md.selections.sort().join('')}`)
+      const sig = item.kolon.matchDetails
+        .map(md => `${md.matchNo}:${[...md.selections].sort().join('')}`)
         .join(',');
       const existing = seen.get(sig);
       if (existing) {
@@ -580,7 +580,7 @@ export default function MyCouponsPage() {
           {/* Expanded live bucket kolonlar */}
           {selectedLiveBucket && (() => {
             const bucketKolonlar = liveGrades.filter(g => {
-              if (g.maxPossible < 12) return false; // minimum 12'ye gidenleri göster
+              if (g.maxPossible < 12) return false;
               if (selectedLiveBucket === 'perfect') return g.isAlive && g.missCount === 0;
               if (selectedLiveBucket === 'oneMiss') return g.isAlive && g.missCount === 1;
               if (selectedLiveBucket === 'twoMiss') return g.isAlive && g.missCount === 2;
@@ -591,11 +591,32 @@ export default function MyCouponsPage() {
 
             if (bucketKolonlar.length === 0) return null;
 
+            // Deduplicate by selection signature
+            const dedupMap = new Map<string, { grade: typeof bucketKolonlar[0]; count: number }>();
+            for (const g of bucketKolonlar) {
+              const sig = g.matchDetails
+                .map(md => `${md.matchNo}:${[...md.selection].sort().join('')}`)
+                .join('|');
+              const existing = dedupMap.get(sig);
+              if (existing) {
+                existing.count++;
+              } else {
+                dedupMap.set(sig, { grade: g, count: 1 });
+              }
+            }
+            const uniqueKolonlar = Array.from(dedupMap.values())
+              .sort((a, b) => b.grade.hitCount - a.grade.hitCount);
+
             return (
               <div className="space-y-3 mt-2">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-bold text-white">
-                    {bucketKolonlar.length} kolon listeleniyor
+                    {uniqueKolonlar.length} farklı kolon listeleniyor
+                    {bucketKolonlar.length !== uniqueKolonlar.length && (
+                      <span className="text-gray-500 font-normal ml-2">
+                        (toplam {bucketKolonlar.length} kolon, {bucketKolonlar.length - uniqueKolonlar.length} tekrar)
+                      </span>
+                    )}
                   </h3>
                   <button
                     onClick={() => setSelectedLiveBucket(null)}
@@ -604,8 +625,8 @@ export default function MyCouponsPage() {
                     ✕ Kapat
                   </button>
                 </div>
-                {bucketKolonlar.map((g, i) => (
-                  <div key={g.kuponId} className={`rounded-2xl border overflow-hidden ${
+                {uniqueKolonlar.map(({ grade: g, count }, i) => (
+                  <div key={`${g.kuponId}-${i}`} className={`rounded-2xl border overflow-hidden ${
                     g.missCount === 0 ? 'border-emerald-500/40' :
                     g.missCount === 1 ? 'border-sky-500/40' :
                     g.missCount <= 3 ? 'border-amber-500/40' :
@@ -627,6 +648,11 @@ export default function MyCouponsPage() {
                         }`}>
                           {g.hitCount}✓ {g.missCount}✗ {g.pendingCount}⏳
                         </span>
+                        {count > 1 && (
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                            ×{count} adet
+                          </span>
+                        )}
                       </div>
                       <span className="text-xs text-gray-400">
                         Maks: {g.maxPossible}/15
@@ -775,11 +801,11 @@ export default function MyCouponsPage() {
                 }
               }
             }
-            // Deduplicate
+            // Deduplicate by selection signature (across all coupons)
             const seen = new Map<string, { coupon: CouponRow; kolon: KolonGrade; count: number }>();
             for (const item of all) {
-              const sig = item.coupon.id + '|' + item.kolon.matchDetails
-                .map(md => `${md.matchNo}:${md.selections.sort().join('')}`)
+              const sig = item.kolon.matchDetails
+                .map(md => `${md.matchNo}:${[...md.selections].sort().join('')}`)
                 .join(',');
               const existing = seen.get(sig);
               if (existing) { existing.count++; } else { seen.set(sig, { ...item, count: 1 }); }
