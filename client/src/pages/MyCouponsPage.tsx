@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useMatches } from '../hooks/useMatches';
 import { couponsApi, CouponRow } from '../lib/coupons-api';
 import { fetchHistoryAnalysis } from '../lib/history-api';
@@ -54,7 +54,6 @@ export default function MyCouponsPage() {
   // Celebration overlay
   const [showCelebration, setShowCelebration] = useState(false);
   const [celebrationHits, setCelebrationHits] = useState(0);
-  const celebrationShownRef = useRef<string | null>(null);
 
   useEffect(() => {
     fetchCoupons();
@@ -353,9 +352,10 @@ export default function MyCouponsPage() {
     const allFinished = liveSummary.pendingMatchCount === 0 && liveSummary.finishedMatchCount > 0;
     const bestHit = liveSummary.bestHitCount;
     if (allFinished && bestHit >= 12) {
-      const key = `celebration-${liveProgram.programNo}`;
-      if (celebrationShownRef.current !== key) {
-        celebrationShownRef.current = key;
+      const storageKey = `celebration-shown-${liveProgram.programNo}`;
+      // Check localStorage so it only shows once per program, ever
+      if (!localStorage.getItem(storageKey)) {
+        localStorage.setItem(storageKey, '1');
         setCelebrationHits(bestHit);
         setShowCelebration(true);
       }
