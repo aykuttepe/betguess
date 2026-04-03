@@ -16,6 +16,7 @@ import {
   apiSetActive,
   apiAdminResetPassword,
 } from '../lib/auth-api';
+import { apiFetchJson } from '../lib/http';
 
 // ─── CustomSelect ────────────────────────────────────────────────────────────
 function CustomSelect<T extends string>({ value, options, onChange }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void }) {
@@ -569,6 +570,31 @@ export default function AdminDashboard() {
   const [waStatus, setWaStatus] = useState<WhatsAppStatusResponse | null>(null);
   const [loadingWa, setLoadingWa] = useState(false);
 
+  // Subscription system toggle
+  const [subSystemActive, setSubSystemActive] = useState<boolean | null>(null);
+  const [subSystemLoading, setSubSystemLoading] = useState(false);
+
+  const loadSubSystemStatus = useCallback(async () => {
+    try {
+      const data = await apiFetchJson<{ active: boolean }>('/api/admin/subscription-active');
+      setSubSystemActive(data.active);
+    } catch { /* ignore */ }
+  }, []);
+
+  async function toggleSubSystem() {
+    if (subSystemActive === null) return;
+    setSubSystemLoading(true);
+    try {
+      const data = await apiFetchJson<{ active: boolean }>('/api/admin/subscription-active', {
+        method: 'POST',
+        body: JSON.stringify({ active: !subSystemActive }),
+      });
+      setSubSystemActive(data.active);
+    } catch { /* ignore */ } finally {
+      setSubSystemLoading(false);
+    }
+  }
+
   // Redirect non-admins
   useEffect(() => {
     if (!isAdmin) navigate('/', { replace: true });
@@ -618,6 +644,7 @@ export default function AdminDashboard() {
     return () => clearInterval(interval);
   }, [loadWaStatus]);
   useEffect(() => { if (tab === 'users') loadUsers(); }, [tab, loadUsers]);
+  useEffect(() => { loadSubSystemStatus(); }, [loadSubSystemStatus]);
 
   // Filtered users
   const filteredUsers = users.filter(u => {
@@ -663,6 +690,34 @@ export default function AdminDashboard() {
             <div className="adm-error-msg">{statsError}</div>
           ) : stats ? (
             <>
+              {/* Subscription System Toggle */}
+              <div className="adm-card" style={{ marginBottom: '1rem' }}>
+                <div className="adm-card-header">
+                  <div>
+                    <h2 className="adm-card-title">🔐 Abonelik Sistemi</h2>
+                    <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: '#6b7280' }}>
+                      Kapalıyken tüm kullanıcılar limitsiz erişir (tanıtım modu).
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span style={{ fontSize: '0.85rem', color: subSystemActive ? '#10b981' : '#f59e0b', fontWeight: 600 }}>
+                      {subSystemActive === null ? '…' : subSystemActive ? 'Aktif' : 'Pasif'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={toggleSubSystem}
+                      disabled={subSystemLoading || subSystemActive === null}
+                      className={`adm-toggle ${subSystemActive ? 'adm-toggle-on' : ''}`}
+                      aria-checked={subSystemActive ?? false}
+                      role="switch"
+                      style={{ opacity: subSystemLoading ? 0.6 : 1 }}
+                    >
+                      <span className="adm-toggle-thumb" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {/* Stat cards */}
               <div className="adm-stats-grid">
                 <StatCard label="Toplam Kullanıcı" value={stats.totalUsers} icon="👤" color="blue" />
@@ -670,6 +725,7 @@ export default function AdminDashboard() {
                 <StatCard label="Admin Sayısı" value={stats.adminCount} icon="★" color="yellow" />
                 <StatCard label="Premium Üye" value={stats.premiumCount} icon="💎" color="purple" />
               </div>
+
 
               {waStatus && !waStatus.isReadyForOtp && (
                 <div className={`adm-card border ${getWhatsAppOverviewCardClasses(waStatus.status)}`}>
@@ -973,6 +1029,7 @@ export default function AdminDashboard() {
           onClose={() => setResetPwTarget(null)}
         />
       )}
+
     </div>
   );
 }

@@ -1,4 +1,6 @@
 export const UNAUTHORIZED_EVENT = 'betguess:unauthorized';
+export const UPGRADE_NEEDED_EVENT = 'betguess:upgrade-needed';
+export const RATE_LIMITED_EVENT = 'betguess:rate-limited';
 
 type ErrorPayload = Record<string, unknown> & { error?: string };
 
@@ -75,6 +77,12 @@ export async function apiFetchJson<T>(
   if (!response.ok) {
     if (response.status === 401 && redirectOn401) {
       notifyUnauthorized();
+    }
+    if (response.status === 403 && (payload as any).requiredTier) {
+      window.dispatchEvent(new CustomEvent(UPGRADE_NEEDED_EVENT, { detail: payload }));
+    }
+    if (response.status === 429) {
+      window.dispatchEvent(new CustomEvent(RATE_LIMITED_EVENT, { detail: payload }));
     }
 
     throw new HttpApiError(payload.error || `HTTP ${response.status}`, response.status, payload);

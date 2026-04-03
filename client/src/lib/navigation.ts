@@ -20,7 +20,7 @@ export interface MobileTabItem {
   section: AppSection | 'profil';
 }
 
-const TAHMINLER_PATHS = ['/', '/sistem', '/kuponlarim'];
+const TAHMINLER_PATHS = ['/', '/sistem', '/kuponlarim', '/sonuclar'];
 const ISTATISTIK_PATHS = [
   '/search',
   '/standings',
@@ -30,14 +30,6 @@ const ISTATISTIK_PATHS = [
   '/tournaments',
   '/history',
 ];
-
-function createSearchMatcher(expected: string, value: string) {
-  return (_pathname: string, search: string) => new URLSearchParams(search).get(expected) === value;
-}
-
-function hasSearchParam(expected: string) {
-  return (_pathname: string, search: string) => new URLSearchParams(search).has(expected);
-}
 
 function matchPath(pathname: string, path: string): boolean {
   return pathname === path;
@@ -50,11 +42,12 @@ export const MAIN_NAV_ITEMS: MainNavItem[] = [
   { id: 'forum', label: 'Forum', to: '/forum' },
 ];
 
-export const SECONDARY_NAV_ITEMS: Record<Exclude<AppSection, 'canli' | 'admin'>, SecondaryNavItem[]> = {
+export const SECONDARY_NAV_ITEMS: Record<Exclude<AppSection, 'canli' | 'admin' | 'forum'>, SecondaryNavItem[]> = {
   tahminler: [
     { id: 'kolon', label: 'Kolon', to: '/', match: (pathname) => matchPath(pathname, '/') },
     { id: 'sistem', label: 'Sistem', to: '/sistem', match: (pathname) => matchPath(pathname, '/sistem') },
     { id: 'kuponlarim', label: 'Kuponlarim', to: '/kuponlarim', match: (pathname) => matchPath(pathname, '/kuponlarim') },
+    { id: 'sonuclar', label: 'Sonuclar', to: '/sonuclar', match: (pathname) => matchPath(pathname, '/sonuclar') },
   ],
   istatistikler: [
     { id: 'ara', label: 'Ara', to: '/search', match: (pathname) => matchPath(pathname, '/search') },
@@ -64,38 +57,6 @@ export const SECONDARY_NAV_ITEMS: Record<Exclude<AppSection, 'canli' | 'admin'>,
     { id: 'oyuncular', label: 'Oyuncular', to: '/player', match: (pathname) => matchPath(pathname, '/player') },
     { id: 'turnuvalar', label: 'Turnuvalar', to: '/tournaments', match: (pathname) => matchPath(pathname, '/tournaments') },
     { id: 'gecmis-analiz', label: 'Gecmis Analiz', to: '/history', match: (pathname) => matchPath(pathname, '/history') },
-  ],
-  forum: [
-    {
-      id: 'tum-konular',
-      label: 'Tum Konular',
-      to: '/forum',
-      match: (pathname, search, hash) =>
-        pathname.startsWith('/forum') &&
-        !createSearchMatcher('sort', 'newest')(pathname, search) &&
-        !createSearchMatcher('sort', 'popular')(pathname, search) &&
-        !hasSearchParam('tag')(pathname, search) &&
-        hash !== '#forum-kategoriler',
-    },
-    {
-      id: 'yeni',
-      label: 'Yeni',
-      to: '/forum?sort=newest',
-      match: (pathname, search) => pathname === '/forum' && createSearchMatcher('sort', 'newest')(pathname, search),
-    },
-    {
-      id: 'populer',
-      label: 'Populer',
-      to: '/forum?sort=popular',
-      match: (pathname, search) => pathname === '/forum' && createSearchMatcher('sort', 'popular')(pathname, search),
-    },
-    {
-      id: 'kategoriler',
-      label: 'Kategoriler',
-      to: '/forum#forum-kategoriler',
-      match: (pathname, search, hash) =>
-        pathname.startsWith('/forum') && (hasSearchParam('tag')(pathname, search) || hash === '#forum-kategoriler'),
-    },
   ],
 };
 
@@ -117,7 +78,7 @@ export function getActiveSection(pathname: string): AppSection | null {
 }
 
 export function getSecondaryNav(section: AppSection | null): SecondaryNavItem[] {
-  if (!section || section === 'canli' || section === 'admin') {
+  if (!section || section === 'canli' || section === 'admin' || section === 'forum') {
     return [];
   }
 

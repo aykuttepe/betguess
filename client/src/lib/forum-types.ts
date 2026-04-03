@@ -25,6 +25,7 @@ export interface ForumTopic {
   isPinned: boolean;
   isLocked: boolean;
   viewCount: number;
+  netLikes: number;
   commentCount: number;
   lastCommentAt: string | null;
   createdAt: string;
@@ -32,6 +33,8 @@ export interface ForumTopic {
   username: string;
   userRole: string;
   userTitle: string | null;
+  reactions?: ReactionSummary;
+  userReactions?: string[];
 }
 
 export interface ReactionSummary {
@@ -100,7 +103,7 @@ export type TopicSort = 'active' | 'popular' | 'newest' | 'oldest' | 'most_viewe
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 
-export type NotificationType = 'comment_on_topic' | 'reply_to_comment' | 'like_on_comment';
+export type NotificationType = 'comment_on_topic' | 'reply_to_comment' | 'like_on_comment' | 'reaction_on_topic';
 
 export interface ForumNotification {
   id: number;
@@ -109,6 +112,7 @@ export interface ForumNotification {
   topicId: number;
   topicTitle: string;
   commentId: number | null;
+  reactionType: string | null;
   isRead: boolean;
   createdAt: string;
 }

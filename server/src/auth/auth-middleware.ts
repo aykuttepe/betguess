@@ -94,21 +94,34 @@ export function requireSubscription(minTier: SubscriptionTier) {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
     requireAuth(req, res, () => {
       const user = req.user!;
+
+      // Admin bypass — admins have unrestricted access
+      if (user.role === 'admin') {
+        next();
+        return;
+      }
+
       const userLevel = TIER_LEVELS[user.subscriptionTier];
       const requiredLevel = TIER_LEVELS[minTier];
 
       if (userLevel < requiredLevel) {
         res.status(403).json({
           error: `Bu ozellik ${minTier} abonelik gerektirir. Mevcut aboneliginiz: ${user.subscriptionTier}`,
+          requiredTier: minTier,
+          currentTier: user.subscriptionTier,
         });
         return;
       }
 
       // Check expiration
       if (user.subscriptionTier !== 'free' && user.subscriptionExpiresAt) {
-        const expiresAt = new Date(user.subscriptionExpiresAt);
+        const expiresAt = new Date(user.subscriptionExpiresAt + 'Z');
         if (expiresAt < new Date()) {
-          res.status(403).json({ error: 'Aboneliginiz sona ermis. Lutfen yenileyin.' });
+          res.status(403).json({
+            error: 'Aboneliginiz sona ermis. Lutfen yenileyin.',
+            requiredTier: minTier,
+            expired: true,
+          });
           return;
         }
       }

@@ -13,6 +13,8 @@ import LatestUsers from '../components/LatestUsers';
 import { fetchMatchAnalysis, fetchFallbackAnalysis, fetchBulkAnalysis } from '../lib/ai-api';
 import { couponsApi } from '../lib/coupons-api';
 import { isHttpApiError } from '../lib/http';
+import { useSubscription } from '../hooks/useSubscription';
+import UpgradePrompt from '../components/UpgradePrompt';
 
 const DEMO_TEAMS = [
     'Galatasaray', 'Fenerbahce', 'Besiktas', 'Trabzonspor',
@@ -70,6 +72,11 @@ export default function KolonPage() {
     const [aiMatchIdx, setAiMatchIdx] = useState<number | null>(null);
     const [showBulkAi, setShowBulkAi] = useState(false);
     const [selectedMatch, setSelectedMatch] = useState<SportTotoMatch | null>(null);
+
+    const { tier } = useSubscription();
+    // Default limits
+    const maxKolonLimit = tier === 'premium' ? 500000 : tier === 'pro' ? 200000 : 50000;
+    const isOverKolonLimit = allSelected && kolonCount > maxKolonLimit;
 
     const activeSequenceOutcomes = activeSequenceMatch === null
         ? []
@@ -416,10 +423,10 @@ export default function KolonPage() {
                         <div className="flex-1 min-w-0" />
                         <button
                             onClick={handleGenerate}
-                            disabled={!allSelected}
-                            className={`px-4 py-1.5 sm:px-6 sm:py-2 rounded font-medium text-xs sm:text-sm transition-colors ${allSelected
-                                ? 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-500/20'
-                                : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                            disabled={!allSelected || isOverKolonLimit}
+                            className={`px-4 py-1.5 sm:px-6 sm:py-2 rounded font-medium text-xs sm:text-sm transition-colors ${!allSelected || isOverKolonLimit
+                                ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                : 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-500/20'
                                 }`}
                         >
                             Kolonlari Olustur ({allSelected ? kolonCount.toLocaleString('tr-TR') : '?'})
@@ -433,6 +440,15 @@ export default function KolonPage() {
                             kolonCount={kolonCount}
                             allSelected={allSelected}
                         />
+                        {isOverKolonLimit && (
+                            <div className="mt-4">
+                                <UpgradePrompt 
+                                    feature="kolon_generate"
+                                    requiredTier={tier === 'free' ? 'pro' : 'premium'}
+                                    message={`Tek seferde en fazla ${maxKolonLimit.toLocaleString('tr-TR')} kolon üretebilirsiniz (Şu an: ${kolonCount.toLocaleString('tr-TR')}). Limitinizi artırmak için aboneliğinizi yükseltin.`}
+                                />
+                            </div>
+                        )}
                     </div>
 
                     <FilterPanel

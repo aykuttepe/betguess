@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { fetchTeamList, fetchTeamDetail, fetchLeagues, refreshTeamDetail } from '../lib/football-api';
 import { TeamListItem, TeamDetail, LeagueInfo, PlayerStats } from '../lib/football-types';
 import { fetchTeamAnalysis, fetchFallbackAnalysis } from '../lib/ai-api';
@@ -8,6 +9,7 @@ import PlayerDetailModal from '../components/PlayerDetailModal';
 type SortKey = 'name' | 'appearances' | 'goals' | 'assists' | 'yellowCards' | 'redCards' | 'minutesPlayed';
 
 export default function TeamDetailPage() {
+  const [searchParams] = useSearchParams();
   const [leagues, setLeagues] = useState<LeagueInfo[]>([]);
   const [selectedLeague, setSelectedLeague] = useState('super-lig');
   const [teams, setTeams] = useState<TeamListItem[]>([]);
@@ -23,6 +25,21 @@ export default function TeamDetailPage() {
   useEffect(() => {
     fetchLeagues().then(setLeagues).catch(() => {});
   }, []);
+
+  // URL'den doğrudan takım yükleme (arama sayfasından gelince)
+  useEffect(() => {
+    const teamId = searchParams.get('teamId');
+    const slug = searchParams.get('slug') || '';
+    if (teamId) {
+      setLoadingDetail(true);
+      setError(null);
+      setSelectedTeam({ teamId, name: slug || teamId, teamSlug: slug } as TeamListItem);
+      fetchTeamDetail(teamId, slug, 'super-lig')
+        .then(setDetail)
+        .catch((err: any) => { setError(err.message); setDetail(null); })
+        .finally(() => setLoadingDetail(false));
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadTeams = useCallback(async (league: string) => {
     setLoadingTeams(true);

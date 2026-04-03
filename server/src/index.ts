@@ -19,6 +19,7 @@ import couponsRouter from './routes/coupons';
 import { getCached } from './scraper/cache';
 import { scrapeMatches } from './scraper/nesine-scraper';
 import forumRouter from './routes/forum';
+import liveTrackingRouter from './routes/live-tracking';
 import { whatsappService } from './services/whatsapp-service';
 
 const app = express();
@@ -38,7 +39,7 @@ function warmMatchesCache(): void {
 initDatabase();
 
 app.use(cors({ credentials: true, origin: true }));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
 
 // Static uploads (before auth)
@@ -54,6 +55,9 @@ app.use('/api/forum', forumRouter);
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
+
+// Public live tracking (program data from Nesine)
+app.use('/api', liveTrackingRouter);
 
 // Protected API routes
 app.use('/api', requireAuth as any);

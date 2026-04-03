@@ -108,6 +108,13 @@ export async function apiToggleReaction(commentId: number, reactionType: Reactio
   });
 }
 
+export async function apiToggleTopicReaction(topicId: number, reactionType: ReactionType): Promise<ReactionResponse> {
+  return forumFetch<ReactionResponse>(`${BASE}/topics/${topicId}/reactions`, {
+    method: 'POST',
+    body: JSON.stringify({ reactionType }),
+  });
+}
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 
 export async function apiGetUnreadCount(): Promise<{ count: number }> {

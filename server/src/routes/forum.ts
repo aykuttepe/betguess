@@ -9,12 +9,15 @@ import {
   togglePin, toggleLock,
   listComments, getCommentById, createComment, updateComment, deleteComment,
   toggleReaction, getReactionSummaries, getUserReactions, ReactionType, TopicSort,
+  toggleTopicReaction, getTopicReactionSummary, getUserTopicReactions,
   PREDEFINED_TAGS, getUserForumProfile, incrementViewCount,
 } from '../db/forum-repository';
 import {
   createNotification, getUnreadCount, listNotifications,
   markAsRead, markAllAsRead,
 } from '../db/notification-repository';
+import { requireUsageLimit } from '../middleware/usage-limit';
+import { isSubscriptionSystemActive } from '../db/settings-repository';
 
 const router = Router();
 
@@ -69,6 +72,7 @@ function formatTopic(t: any) {
     isPinned: t.is_pinned === 1,
     isLocked: t.is_locked === 1,
     viewCount: t.view_count ?? 0,
+    netLikes: t.net_likes ?? 0,
     commentCount: t.comment_count,
     lastCommentAt: t.last_comment_at,
     createdAt: t.created_at,
@@ -164,14 +168,27 @@ router.get('/topics/:id', optionalAuth as any, (req: AuthRequest, res: Response)
   const reactionSummaries = getReactionSummaries(commentIds);
   const userReactions = req.user ? getUserReactions(req.user.id, commentIds) : {};
 
+  // Topic reactions
+  const topicReactions = getTopicReactionSummary(topic.id);
+  const userTopicReactions = req.user ? getUserTopicReactions(req.user.id, topic.id) : [];
+
   res.json({
-    topic: formatTopic(topic),
+    topic: { ...formatTopic(topic), reactions: topicReactions, userReactions: userTopicReactions },
     comments: comments.map(c => formatComment(c, reactionSummaries[c.id], userReactions[c.id] || [])),
   });
 });
 
 // POST /topics — auth required
-router.post('/topics', requireAuth as any, upload.single('image'), (req: AuthRequest, res: Response) => {
+const forumTopicLimitMiddleware = requireUsageLimit('forum_topic', { free: 2, pro: 10, premium: -1 });
+
+router.post('/topics',
+  requireAuth as any,
+  ((req: AuthRequest, res: Response, next: any) => {
+    if (!isSubscriptionSystemActive() || req.user?.role === 'admin') return next();
+    return forumTopicLimitMiddleware(req, res, next);
+  }) as any,
+  upload.single('image'),
+  (req: AuthRequest, res: Response) => {
   const { title, body } = req.body;
 
   if (!title || !title.trim()) {
@@ -265,10 +282,54 @@ router.post('/topics/:id/lock', requireAuth as any, (req: AuthRequest, res: Resp
   res.json({ locked });
 });
 
+// POST /topics/:id/reactions — auth required
+router.post('/topics/:id/reactions', requireAuth as any, (req: AuthRequest, res: Response) => {
+  const topic = getTopicById(paramId(req));
+  if (!topic) {
+    res.status(404).json({ error: 'Konu bulunamadi.' });
+    return;
+  }
+
+  const { reactionType } = req.body;
+  if (!reactionType || !VALID_REACTIONS.includes(reactionType)) {
+    res.status(400).json({ error: 'Gecersiz reaksiyon tipi.' });
+    return;
+  }
+
+  const result = toggleTopicReaction(req.user!.id, topic.id, reactionType as ReactionType);
+
+  // Notify topic owner on any reaction (only when adding, not removing)
+  if (result.added) {
+    createNotification(topic.user_id, 'reaction_on_topic', req.user!.id, topic.id, null, reactionType);
+  }
+
+  const reactions = getTopicReactionSummary(topic.id);
+  const userReactions = getUserTopicReactions(req.user!.id, topic.id);
+
+  // Get updated net_likes
+  const updated = getTopicById(topic.id)!;
+
+  res.json({
+    ...result,
+    reactions,
+    userReactions,
+    netLikes: updated.net_likes ?? 0,
+  });
+});
+
 // ─── Comments ─────────────────────────────────────────────────────────────────
 
 // POST /topics/:id/comments — auth required
-router.post('/topics/:id/comments', requireAuth as any, upload.single('image'), (req: AuthRequest, res: Response) => {
+const forumCommentLimitMiddleware = requireUsageLimit('forum_comment', { free: 5, pro: -1, premium: -1 });
+
+router.post('/topics/:id/comments',
+  requireAuth as any,
+  ((req: AuthRequest, res: Response, next: any) => {
+    if (!isSubscriptionSystemActive() || req.user?.role === 'admin') return next();
+    return forumCommentLimitMiddleware(req, res, next);
+  }) as any,
+  upload.single('image'),
+  (req: AuthRequest, res: Response) => {
   const topic = getTopicById(paramId(req));
   if (!topic) {
     res.status(404).json({ error: 'Konu bulunamadi.' });
@@ -368,9 +429,9 @@ router.post('/comments/:id/reactions', requireAuth as any, (req: AuthRequest, re
 
   const result = toggleReaction(req.user!.id, comment.id, reactionType as ReactionType);
 
-  // Notify on like (only when adding, not removing)
-  if (reactionType === 'like' && result.added) {
-    createNotification(comment.user_id, 'like_on_comment', req.user!.id, comment.topic_id, comment.id);
+  // Notify comment owner on any reaction (only when adding, not removing)
+  if (result.added) {
+    createNotification(comment.user_id, 'like_on_comment', req.user!.id, comment.topic_id, comment.id, reactionType);
   }
 
   const summaries = getReactionSummaries([comment.id]);
@@ -406,6 +467,7 @@ router.get('/notifications', requireAuth as any, (req: AuthRequest, res: Respons
       topicId: n.topic_id,
       topicTitle: n.topic_title,
       commentId: n.comment_id,
+      reactionType: n.reaction_type || null,
       isRead: n.is_read === 1,
       createdAt: n.created_at,
     })),

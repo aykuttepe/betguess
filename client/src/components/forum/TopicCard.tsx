@@ -3,15 +3,19 @@ import { ForumTopic } from '../../lib/forum-types';
 import UserProfileCard from './UserProfileCard';
 
 function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'az once';
-  if (mins < 60) return `${mins}dk once`;
+  const utcStr = dateStr.endsWith('Z') ? dateStr : dateStr + 'Z';
+  const diff = Date.now() - new Date(utcStr).getTime();
+  const secs = Math.floor(diff / 1000);
+  if (secs < 60) return 'simdi';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins} dakika once`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}sa once`;
+  if (hours < 24) return `${hours} saat once`;
   const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}g once`;
-  return new Date(dateStr).toLocaleDateString('tr-TR');
+  if (days < 30) return `${days} gun once`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} ay once`;
+  return new Date(utcStr).toLocaleDateString('tr-TR');
 }
 
 interface Props {

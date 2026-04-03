@@ -65,6 +65,7 @@ export async function fetchScheduledMatches(matchDate?: string) {
   return fetchFootballApi('/api/live/scheduled', matchDate ? { match_date: matchDate } : undefined);
 }
 
+
 export async function fetchLiveMatchDetail(eventId: number) {
   return fetchFootballApi(`/api/live/${eventId}`);
 }

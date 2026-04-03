@@ -160,6 +160,28 @@ export function initDatabase(): Database.Database {
     console.log('[Dev] Migrated: Added view_count to forum_topics');
   }
 
+  // Migration: Add net_likes to forum_topics if not exists
+  if (!topicInfo.some(col => col.name === 'net_likes')) {
+    db.exec(`ALTER TABLE forum_topics ADD COLUMN net_likes INTEGER NOT NULL DEFAULT 0`);
+    console.log('[Dev] Migrated: Added net_likes to forum_topics');
+  }
+
+  // Topic reactions table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS forum_topic_reactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      topic_id INTEGER NOT NULL,
+      reaction_type TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(user_id, topic_id, reaction_type),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(topic_id) REFERENCES forum_topics(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_forum_topic_reactions_topic ON forum_topic_reactions(topic_id);
+    CREATE INDEX IF NOT EXISTS idx_forum_topic_reactions_user ON forum_topic_reactions(user_id, topic_id);
+  `);
+
   // ─── Notifications table ─────────────────────────────────────────────────────
   db.exec(`
     CREATE TABLE IF NOT EXISTS forum_notifications (
@@ -178,6 +200,39 @@ export function initDatabase(): Database.Database {
     );
 
     CREATE INDEX IF NOT EXISTS idx_forum_notif_user ON forum_notifications(user_id, is_read, created_at DESC);
+  `);
+
+  // Migration: Add reaction_type column to forum_notifications if not exists
+  const notifInfo = db.prepare("PRAGMA table_info(forum_notifications)").all() as Array<{ name: string }>;
+  if (!notifInfo.some(col => col.name === 'reaction_type')) {
+    db.exec(`ALTER TABLE forum_notifications ADD COLUMN reaction_type TEXT DEFAULT NULL`);
+    console.log('[Dev] Migrated: Added reaction_type to forum_notifications');
+  }
+
+  // ─── App settings table (key-value runtime config) ─────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+
+  // Default: subscription system OFF (for launch / tanıtım period)
+  db.exec(`INSERT OR IGNORE INTO app_settings (key, value) VALUES ('subscription_system_active', '0')`);
+
+  // ─── Usage limits table (subscription tier daily quotas) ──────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS usage_limits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      action_type TEXT NOT NULL,
+      date TEXT NOT NULL,
+      count INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(user_id, action_type, date),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_usage_limits_lookup
+      ON usage_limits(user_id, action_type, date);
   `);
 
   console.log('[DB] SQLite veritabani hazir:', DB_PATH);

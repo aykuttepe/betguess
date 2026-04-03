@@ -44,14 +44,18 @@ export default function ForumPage() {
 
   // Ref to track if debounce effect should skip initial render
   const isInitialMount = useRef(true);
+  const isFirstLoad = useRef(true);
+  const pollRef = useRef<number>();
+  const POLL_INTERVAL = 15_000; // 15 seconds
 
   const loadTopics = useCallback(async () => {
-    setLoading(true);
+    if (isFirstLoad.current) setLoading(true);
     try {
       const data = await apiListTopics(page, 20, search || undefined, sort, activeTags.length > 0 ? activeTags : undefined, dateRange);
       setTopics(data.topics);
       setTotal(data.total);
       setTotalPages(data.totalPages);
+      isFirstLoad.current = false;
     } catch {
       // silent
     } finally {
@@ -59,8 +63,30 @@ export default function ForumPage() {
     }
   }, [page, search, sort, activeTags, dateRange]);
 
+  // Initial load + auto-poll for live updates
   useEffect(() => {
     loadTopics();
+
+    const startPoll = () => {
+      pollRef.current = window.setInterval(loadTopics, POLL_INTERVAL);
+    };
+    const stopPoll = () => {
+      if (pollRef.current) window.clearInterval(pollRef.current);
+    };
+
+    startPoll();
+
+    const onFocus = () => { loadTopics(); startPoll(); };
+    const onBlur = () => { stopPoll(); };
+
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('blur', onBlur);
+
+    return () => {
+      stopPoll();
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur', onBlur);
+    };
   }, [loadTopics]);
 
   // Live search debounce
@@ -199,21 +225,20 @@ export default function ForumPage() {
         />
       </form>
 
-      {/* Sort tabs — visible on all screen sizes */}
-      <div className="forum-category-tabs">
+      {/* Sort + Tag filter — combined row */}
+      <div id="forum-kategoriler" className="forum-tag-filter scroll-mt-36">
+        {/* Sıralama chipleri */}
         {SORT_OPTIONS.map(({ key, label }) => (
           <button
-            key={key}
+            key={`sort-${key}`}
             onClick={() => handleSortChange(key)}
-            className={`forum-category-btn ${sort === key ? 'forum-category-active' : ''}`}
+            className={`forum-sort-chip ${sort === key ? 'forum-sort-chip-active' : ''}`}
           >
             {label}
           </button>
         ))}
-      </div>
-
-      {/* Tag filter — multi-select */}
-      <div id="forum-kategoriler" className="forum-tag-filter scroll-mt-36">
+        <span className="forum-filter-divider">|</span>
+        {/* Etiket chipleri */}
         {FORUM_TAGS.map(tag => (
           <button
             key={tag}

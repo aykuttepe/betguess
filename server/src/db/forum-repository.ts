@@ -31,6 +31,7 @@ export interface TopicRow {
   is_pinned: number;
   is_locked: number;
   view_count: number;
+  net_likes: number;
   comment_count: number;
   last_comment_at: string | null;
   created_at: string;
@@ -87,13 +88,23 @@ const TOPIC_SELECT = `
 
 export type TopicSort = 'active' | 'popular' | 'newest' | 'oldest' | 'most_viewed' | 'most_liked';
 
+// Hype score: topic reactions + comment reactions + comments + views (weighted)
+const HYPE_SCORE = `(
+  t.net_likes * 3
+  + (SELECT COALESCE(COUNT(*), 0) FROM forum_topic_reactions tr WHERE tr.topic_id = t.id) * 2
+  + (SELECT COALESCE(SUM(ABS(c2.net_likes)), 0) FROM forum_comments c2 WHERE c2.topic_id = t.id)
+  + (SELECT COALESCE(COUNT(*), 0) FROM forum_reactions fr JOIN forum_comments c3 ON c3.id = fr.comment_id WHERE c3.topic_id = t.id)
+  + t.comment_count * 2
+  + t.view_count
+)`;
+
 const TOPIC_ORDER: Record<TopicSort, string> = {
   active:      't.is_pinned DESC, COALESCE(t.last_comment_at, t.created_at) DESC',
-  popular:     't.is_pinned DESC, t.comment_count DESC, t.created_at DESC',
+  popular:     `t.is_pinned DESC, ${HYPE_SCORE} DESC, t.created_at DESC`,
   newest:      't.is_pinned DESC, t.created_at DESC',
   oldest:      't.is_pinned DESC, t.created_at ASC',
   most_viewed: 't.is_pinned DESC, t.view_count DESC, t.created_at DESC',
-  most_liked:  `t.is_pinned DESC, (SELECT COALESCE(SUM(CASE WHEN r.reaction_type = 'like' THEN 1 ELSE 0 END), 0) FROM forum_comment_reactions r JOIN forum_comments c ON c.id = r.comment_id WHERE c.topic_id = t.id) DESC, t.created_at DESC`,
+  most_liked:  `t.is_pinned DESC, (t.net_likes + (SELECT COALESCE(SUM(CASE WHEN c2.net_likes > 0 THEN c2.net_likes ELSE 0 END), 0) FROM forum_comments c2 WHERE c2.topic_id = t.id)) DESC, t.created_at DESC`,
 };
 
 export function listTopics(page = 1, limit = 20, search?: string, sort: TopicSort = 'active', tags?: string[], dateRange?: string): { topics: TopicRow[]; total: number } {
@@ -272,8 +283,11 @@ export function toggleReaction(userId: number, commentId: number, reactionType: 
     return { added: false };
   }
 
-  // For like/dislike, remove the opposite first
+  const EMOJI_TYPES = ['fire', 'heart', 'laugh', 'sad', 'angry'];
+  const isEmoji = EMOJI_TYPES.includes(reactionType);
+
   if (reactionType === 'like' || reactionType === 'dislike') {
+    // For like/dislike, remove the opposite first
     const opposite = reactionType === 'like' ? 'dislike' : 'like';
     const hadOpposite = db.prepare(
       'SELECT id FROM forum_reactions WHERE user_id = ? AND comment_id = ? AND reaction_type = ?'
@@ -282,13 +296,17 @@ export function toggleReaction(userId: number, commentId: number, reactionType: 
     if (hadOpposite) {
       db.prepare('DELETE FROM forum_reactions WHERE user_id = ? AND comment_id = ? AND reaction_type = ?')
         .run(userId, commentId, opposite);
-      // Undo opposite effect
       if (opposite === 'like') {
         db.prepare('UPDATE forum_comments SET net_likes = net_likes - 1 WHERE id = ?').run(commentId);
       } else {
         db.prepare('UPDATE forum_comments SET net_likes = net_likes + 1 WHERE id = ?').run(commentId);
       }
     }
+  } else if (isEmoji) {
+    // For emojis, remove any other emoji first (only 1 emoji allowed)
+    db.prepare(
+      `DELETE FROM forum_reactions WHERE user_id = ? AND comment_id = ? AND reaction_type IN (${EMOJI_TYPES.map(() => '?').join(',')})`
+    ).run(userId, commentId, ...EMOJI_TYPES);
   }
 
   // Add the reaction
@@ -333,6 +351,82 @@ export function getUserReactions(userId: number, commentIds: number[]): Record<n
     result[r.comment_id].push(r.reaction_type);
   }
   return result;
+}
+
+// ─── Topic Reactions ─────────────────────────────────────────────────────────
+
+export function toggleTopicReaction(userId: number, topicId: number, reactionType: ReactionType): { added: boolean } {
+  const db = getDatabase();
+
+  const existing = db.prepare(
+    'SELECT id FROM forum_topic_reactions WHERE user_id = ? AND topic_id = ? AND reaction_type = ?'
+  ).get(userId, topicId, reactionType);
+
+  if (existing) {
+    db.prepare('DELETE FROM forum_topic_reactions WHERE user_id = ? AND topic_id = ? AND reaction_type = ?')
+      .run(userId, topicId, reactionType);
+    if (reactionType === 'like') {
+      db.prepare('UPDATE forum_topics SET net_likes = net_likes - 1 WHERE id = ?').run(topicId);
+    } else if (reactionType === 'dislike') {
+      db.prepare('UPDATE forum_topics SET net_likes = net_likes + 1 WHERE id = ?').run(topicId);
+    }
+    return { added: false };
+  }
+
+  const EMOJI_TYPES = ['fire', 'heart', 'laugh', 'sad', 'angry'];
+  const isEmoji = EMOJI_TYPES.includes(reactionType);
+
+  if (reactionType === 'like' || reactionType === 'dislike') {
+    const opposite = reactionType === 'like' ? 'dislike' : 'like';
+    const hadOpposite = db.prepare(
+      'SELECT id FROM forum_topic_reactions WHERE user_id = ? AND topic_id = ? AND reaction_type = ?'
+    ).get(userId, topicId, opposite);
+    if (hadOpposite) {
+      db.prepare('DELETE FROM forum_topic_reactions WHERE user_id = ? AND topic_id = ? AND reaction_type = ?')
+        .run(userId, topicId, opposite);
+      if (opposite === 'like') {
+        db.prepare('UPDATE forum_topics SET net_likes = net_likes - 1 WHERE id = ?').run(topicId);
+      } else {
+        db.prepare('UPDATE forum_topics SET net_likes = net_likes + 1 WHERE id = ?').run(topicId);
+      }
+    }
+  } else if (isEmoji) {
+    // For emojis, remove any other emoji first (only 1 emoji allowed)
+    db.prepare(
+      `DELETE FROM forum_topic_reactions WHERE user_id = ? AND topic_id = ? AND reaction_type IN (${EMOJI_TYPES.map(() => '?').join(',')})`
+    ).run(userId, topicId, ...EMOJI_TYPES);
+  }
+
+  db.prepare('INSERT INTO forum_topic_reactions (user_id, topic_id, reaction_type) VALUES (?, ?, ?)')
+    .run(userId, topicId, reactionType);
+  if (reactionType === 'like') {
+    db.prepare('UPDATE forum_topics SET net_likes = net_likes + 1 WHERE id = ?').run(topicId);
+  } else if (reactionType === 'dislike') {
+    db.prepare('UPDATE forum_topics SET net_likes = net_likes - 1 WHERE id = ?').run(topicId);
+  }
+  return { added: true };
+}
+
+export function getTopicReactionSummary(topicId: number): ReactionSummary {
+  const db = getDatabase();
+  const rows = db.prepare(
+    'SELECT reaction_type, COUNT(*) as cnt FROM forum_topic_reactions WHERE topic_id = ? GROUP BY reaction_type'
+  ).all(topicId) as Array<{ reaction_type: string; cnt: number }>;
+  const summary: ReactionSummary = { like: 0, dislike: 0, fire: 0, heart: 0, laugh: 0, sad: 0, angry: 0 };
+  for (const r of rows) {
+    if (r.reaction_type in summary) {
+      (summary as any)[r.reaction_type] = r.cnt;
+    }
+  }
+  return summary;
+}
+
+export function getUserTopicReactions(userId: number, topicId: number): string[] {
+  const db = getDatabase();
+  const rows = db.prepare(
+    'SELECT reaction_type FROM forum_topic_reactions WHERE user_id = ? AND topic_id = ?'
+  ).all(userId, topicId) as Array<{ reaction_type: string }>;
+  return rows.map(r => r.reaction_type);
 }
 
 // ─── User Forum Profile ──────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react';
 import { ReactionSummary, ReactionType } from '../../lib/forum-types';
 
 const EMOJI_MAP: { type: ReactionType; emoji: string; label: string }[] = [
@@ -19,6 +20,30 @@ interface Props {
 export default function ReactionBar({ reactions, userReactions, netLikes, onReact, disabled }: Props) {
   const hasLiked = userReactions.includes('like');
   const hasDisliked = userReactions.includes('dislike');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  // Close picker on outside click
+  useEffect(() => {
+    if (!pickerOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [pickerOpen]);
+
+  // Visible emojis: those with count > 0 or user has reacted
+  const visibleEmojis = EMOJI_MAP.filter(
+    ({ type }) => reactions[type] > 0 || userReactions.includes(type)
+  );
+
+  function handlePickerReact(type: ReactionType) {
+    onReact(type);
+    setPickerOpen(false);
+  }
 
   return (
     <div className="forum-reaction-bar">
@@ -51,25 +76,65 @@ export default function ReactionBar({ reactions, userReactions, netLikes, onReac
         </button>
       </div>
 
-      {/* Emoji Reactions */}
-      <div className="forum-emoji-group">
-        {EMOJI_MAP.map(({ type, emoji }) => {
-          const count = reactions[type];
-          const active = userReactions.includes(type);
-          return (
-            <button
-              key={type}
-              className={`forum-emoji-btn ${active ? 'forum-emoji-active' : ''}`}
-              onClick={() => onReact(type)}
-              disabled={disabled}
-              title={type}
-            >
-              <span>{emoji}</span>
-              {count > 0 && <span className="forum-emoji-count">{count}</span>}
-            </button>
-          );
-        })}
-      </div>
+      {/* Visible Emoji Reactions (those with count > 0) */}
+      {visibleEmojis.length > 0 && (
+        <div className="forum-emoji-group">
+          {visibleEmojis.map(({ type, emoji }) => {
+            const count = reactions[type];
+            const active = userReactions.includes(type);
+            return (
+              <button
+                key={type}
+                className={`forum-emoji-btn ${active ? 'forum-emoji-active' : ''}`}
+                onClick={() => onReact(type)}
+                disabled={disabled}
+                title={type}
+              >
+                <span>{emoji}</span>
+                {count > 0 && <span className="forum-emoji-count">{count}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* + Button to open emoji picker */}
+      {!disabled && (
+        <div className="forum-emoji-picker-wrapper" ref={pickerRef}>
+          <button
+            className="forum-emoji-add-btn"
+            onClick={() => setPickerOpen(v => !v)}
+            title="Tepki ekle"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+              <line x1="9" y1="9" x2="9.01" y2="9" />
+              <line x1="15" y1="9" x2="15.01" y2="9" />
+            </svg>
+            <span className="forum-emoji-plus">+</span>
+          </button>
+
+          {pickerOpen && (
+            <div className="forum-emoji-picker">
+              {EMOJI_MAP.map(({ type, emoji, label }) => {
+                const active = userReactions.includes(type);
+                return (
+                  <button
+                    key={type}
+                    className={`forum-emoji-picker-item ${active ? 'forum-emoji-picker-active' : ''}`}
+                    onClick={() => handlePickerReact(type)}
+                    title={label}
+                  >
+                    <span className="forum-emoji-picker-emoji">{emoji}</span>
+                    <span className="forum-emoji-picker-label">{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

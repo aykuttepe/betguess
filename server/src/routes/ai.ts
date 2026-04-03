@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import {
     analyzeMatch,
     analyzeTeam,
@@ -8,11 +8,17 @@ import {
     analyzeBulkMatches,
     fallbackAnalysis,
 } from '../services/ai-service';
+import { AuthRequest } from '../auth/types';
+import { requireSubscription } from '../auth/auth-middleware';
+import { requireUsageLimit } from '../middleware/usage-limit';
 
 const router = Router();
 
-// Mac analizi
-router.post('/match-analysis', async (req: Request, res: Response) => {
+// Mac analizi — Pro: 15/gun, Premium: sinirsiz
+router.post('/match-analysis',
+    requireSubscription('pro') as any,
+    requireUsageLimit('ai_match', { free: 0, pro: 15, premium: -1 }) as any,
+    async (req: AuthRequest, res: Response) => {
     const { homeTeam, awayTeam, league } = req.body;
     if (!homeTeam || !awayTeam) {
         return res.status(400).json({ error: 'homeTeam ve awayTeam zorunlu.' });
@@ -26,8 +32,11 @@ router.post('/match-analysis', async (req: Request, res: Response) => {
     }
 });
 
-// Takim analizi
-router.post('/team-analysis', async (req: Request, res: Response) => {
+// Takim analizi — Pro: 10/gun, Premium: sinirsiz
+router.post('/team-analysis',
+    requireSubscription('pro') as any,
+    requireUsageLimit('ai_team', { free: 0, pro: 10, premium: -1 }) as any,
+    async (req: AuthRequest, res: Response) => {
     const { team, league } = req.body;
     if (!team) {
         return res.status(400).json({ error: 'team zorunlu.' });
@@ -41,8 +50,11 @@ router.post('/team-analysis', async (req: Request, res: Response) => {
     }
 });
 
-// Lig analizi
-router.post('/league-analysis', async (req: Request, res: Response) => {
+// Lig analizi — Pro: 10/gun, Premium: sinirsiz
+router.post('/league-analysis',
+    requireSubscription('pro') as any,
+    requireUsageLimit('ai_league', { free: 0, pro: 10, premium: -1 }) as any,
+    async (req: AuthRequest, res: Response) => {
     const { leagueLabel, standingsSummary } = req.body;
     if (!leagueLabel) {
         return res.status(400).json({ error: 'leagueLabel zorunlu.' });
@@ -56,8 +68,11 @@ router.post('/league-analysis', async (req: Request, res: Response) => {
     }
 });
 
-// Transfer analizi
-router.post('/transfer-analysis', async (req: Request, res: Response) => {
+// Transfer analizi — Pro: 10/gun, Premium: sinirsiz
+router.post('/transfer-analysis',
+    requireSubscription('pro') as any,
+    requireUsageLimit('ai_transfer', { free: 0, pro: 10, premium: -1 }) as any,
+    async (req: AuthRequest, res: Response) => {
     const { leagueLabel, teamsSummary } = req.body;
     if (!leagueLabel) {
         return res.status(400).json({ error: 'leagueLabel zorunlu.' });
@@ -71,8 +86,11 @@ router.post('/transfer-analysis', async (req: Request, res: Response) => {
     }
 });
 
-// Oyuncu analizi
-router.post('/player-analysis', async (req: Request, res: Response) => {
+// Oyuncu analizi — Pro: 10/gun, Premium: sinirsiz
+router.post('/player-analysis',
+    requireSubscription('pro') as any,
+    requireUsageLimit('ai_player', { free: 0, pro: 10, premium: -1 }) as any,
+    async (req: AuthRequest, res: Response) => {
     const { playerName, playerInfo } = req.body;
     if (!playerName) {
         return res.status(400).json({ error: 'playerName zorunlu.' });
@@ -86,8 +104,11 @@ router.post('/player-analysis', async (req: Request, res: Response) => {
     }
 });
 
-// Toplu mac analizi
-router.post('/bulk-analysis', async (req: Request, res: Response) => {
+// Toplu mac analizi — Pro: 5/gun, Premium: 20/gun
+router.post('/bulk-analysis',
+    requireSubscription('pro') as any,
+    requireUsageLimit('ai_bulk', { free: 0, pro: 5, premium: 20 }) as any,
+    async (req: AuthRequest, res: Response) => {
     const { matches, league } = req.body;
     if (!matches || !Array.isArray(matches)) {
         return res.status(400).json({ error: 'matches array zorunlu.' });
@@ -101,8 +122,8 @@ router.post('/bulk-analysis', async (req: Request, res: Response) => {
     }
 });
 
-// Fallback analiz (hata durumu)
-router.post('/fallback', async (req: Request, res: Response) => {
+// Fallback analiz (hata durumu) — no subscription required
+router.post('/fallback', async (req: AuthRequest, res: Response) => {
     const { context, error: errorMsg } = req.body;
     if (!context) {
         return res.status(400).json({ error: 'context zorunlu.' });

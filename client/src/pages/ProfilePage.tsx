@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { AdminUserDetail } from '../lib/auth-types';
 import { apiGetProfile, apiUpdateProfile, apiChangePassword } from '../lib/auth-api';
 import PhoneVerificationModal from '../components/PhoneVerificationModal';
+import { useUsageStatus } from '../hooks/useUsageStatus';
 
 function fmtDate(d: string) {
   return new Date(d).toLocaleDateString('tr-TR', { day: '2-digit', month: 'long', year: 'numeric' });
@@ -265,6 +266,7 @@ type ModalType = null | 'account' | 'password';
 
 export default function ProfilePage() {
   const { isAdmin, refreshUser } = useAuth();
+  const { data: usage, loading: usageLoading } = useUsageStatus();
   const [profile, setProfile] = useState<AdminUserDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -388,6 +390,44 @@ export default function ProfilePage() {
             )}
             {profile.subscriptionTier === 'free' && (
               <p className="prof-sub-hint">Ucretsiz plan kullaniyorsunuz.</p>
+            )}
+          </div>
+        </div>
+
+        {/* Usage Limits */}
+        <div className="prof-card">
+          <h2 className="prof-card-title">Günlük Kullanım</h2>
+          <div className="flex flex-col gap-2 mt-2">
+            {usageLoading ? (
+              <span className="text-gray-400 text-sm">Hesaplanıyor...</span>
+            ) : usage ? (
+              Object.entries(usage.limits).map(([key, limit]) => {
+                if (key === 'saved_coupons') return null; // skipped
+                const labelMap: Record<string, string> = {
+                  forum_topic: 'Forum Konu Açma',
+                  forum_comment: 'Forum Yorum',
+                  ai_match: 'AI Maç Analizi',
+                  ai_bulk: 'AI Toplu Analiz'
+                };
+                const label = labelMap[key] || key;
+                return (
+                  <div key={key} className="flex justify-between items-center text-sm border-b border-gray-700/50 pb-2 mb-1 last:border-0">
+                    <span className="text-gray-300">{label}</span>
+                    <span className="font-semibold text-white">
+                      {limit.limit === -1 
+                        ? 'Sınırsız' 
+                        : limit.limit === 0 
+                          ? <span className="text-red-400">Kilitli</span>
+                          : <span className={limit.used >= limit.limit ? 'text-amber-500' : 'text-emerald-400'}>
+                              {limit.used} / {limit.limit}
+                            </span>
+                      }
+                    </span>
+                  </div>
+                );
+              })
+            ) : (
+              <span className="text-gray-500 text-sm">Veri yok.</span>
             )}
           </div>
         </div>

@@ -81,6 +81,10 @@ export function fetchScheduledMatches(matchDate?: string): Promise<any> {
   return fetchJson(`${BASE}/live/scheduled${q}`);
 }
 
+export function fetchFinishedMatches(): Promise<any> {
+  return fetchJson(`${BASE}/live/finished`);
+}
+
 export function searchFootball(query: string): Promise<SearchResponse> {
   return fetchJson(`${BASE}/search?q=${encodeURIComponent(query)}`);
 }

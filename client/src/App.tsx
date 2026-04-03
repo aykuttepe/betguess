@@ -19,7 +19,10 @@ import AdminDashboard from './pages/AdminDashboard';
 import ProfilePage from './pages/ProfilePage';
 import ForumPage from './pages/ForumPage';
 import TopicDetailPage from './pages/TopicDetailPage';
+import SonuclarPage from './pages/SonuclarPage';
 import PhoneVerificationModal from './components/PhoneVerificationModal';
+import GlobalUpgradeToast from './components/GlobalUpgradeToast';
+import PricingPage from './pages/PricingPage';
 
 function PhoneVerificationGuard() {
   const { user, isLoading } = useAuth();
@@ -50,6 +53,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <PhoneVerificationGuard />
+        <GlobalUpgradeToast />
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<AuthPage />} />
@@ -57,6 +61,7 @@ export default function App() {
             <Route element={<StandardLayout />}>
               <Route path="/forum" element={<ForumPage />} />
               <Route path="/forum/:id" element={<TopicDetailPage />} />
+              <Route path="/pricing" element={<PricingPage />} />
             </Route>
           </Route>
 
@@ -67,6 +72,7 @@ export default function App() {
               <Route element={<StandardLayout />}>
                 <Route path="/sistem" element={<SystemCouponPage />} />
                 <Route path="/kuponlarim" element={<MyCouponsPage />} />
+                <Route path="/sonuclar" element={<SonuclarPage />} />
                 <Route path="/live" element={<LivePage />} />
                 <Route path="/search" element={<SearchPage />} />
                 <Route path="/standings" element={<StandingsPage />} />

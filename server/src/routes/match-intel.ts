@@ -1,13 +1,17 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import {
   getMatchIntel,
   MatchIntelNotFoundError,
   MatchIntelUpstreamError,
 } from '../services/match-intel-service';
+import { AuthRequest } from '../auth/types';
+import { requireSubscription } from '../auth/auth-middleware';
 
 const router = Router();
 
-router.get('/match-intel', async (req: Request, res: Response) => {
+router.get('/match-intel',
+  requireSubscription('pro') as any,
+  async (req: AuthRequest, res: Response) => {
   const homeTeam = String(req.query.homeTeam || '').trim();
   const awayTeam = String(req.query.awayTeam || '').trim();
   const matchDate = String(req.query.matchDate || '').trim();

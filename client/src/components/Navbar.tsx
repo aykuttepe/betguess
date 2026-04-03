@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import NotificationBell from './NotificationBell';
+import TierBadge from './TierBadge';
 import {
   getActiveSection,
   getSecondaryNav,
@@ -129,6 +130,7 @@ export default function Navbar() {
     setUserMenuOpen(false);
     setDrawerOpen(false);
     await logout();
+    navigate('/login');
   }
 
   function handleSearchSubmit(event: FormEvent, source: 'desktop' | 'mobile') {
@@ -238,7 +240,9 @@ export default function Navbar() {
                     </span>
                     <div className="hidden min-w-0 md:block">
                       <div className="truncate text-sm font-semibold text-white">{user.username}</div>
-                      <div className="text-xs text-slate-400">{isAdmin ? 'Admin' : 'Hesabim'}</div>
+                      <div className="text-xs text-slate-400 mt-0.5">
+                        <TierBadge tier={user.subscriptionTier || 'free'} />
+                      </div>
                     </div>
                     <ChevronIcon open={userMenuOpen} />
                   </button>
@@ -248,15 +252,22 @@ export default function Navbar() {
                       <div className="navbar-dropdown">
                         <div className="navbar-dropdown-header">
                           <p className="navbar-dropdown-email">{user.email}</p>
-                          <span className={`navbar-dropdown-role ${isAdmin ? 'role-admin' : 'role-user'}`}>
-                            {isAdmin ? 'Admin' : 'Kullanici'}
-                          </span>
+                          <div className="mt-2">
+                            <TierBadge tier={user.subscriptionTier || 'free'} />
+                            {isAdmin && <span className="role-admin ml-2">Admin</span>}
+                          </div>
                         </div>
                         <button onClick={() => navigate('/profile')} className="navbar-dropdown-settings">
                           <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
                             <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 0 1-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 0 1 .947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 0 1 2.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 0 1 2.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 0 1 .947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 0 1-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 0 1-2.287-.947ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" clipRule="evenodd" />
                           </svg>
                           Profil ve Ayarlar
+                        </button>
+                        <button onClick={() => navigate('/pricing')} className="navbar-dropdown-settings">
+                          <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                            <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
+                          </svg>
+                          Abonelik Planları
                         </button>
                         <div className="navbar-dropdown-divider" />
                         <button onClick={handleLogout} className="navbar-dropdown-logout">

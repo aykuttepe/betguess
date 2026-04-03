@@ -95,6 +95,10 @@ export default function SearchPage() {
                 navigate(`/tournaments?tournamentId=${result.entity.id}`);
                 return;
               }
+              if (result.type === 'team') {
+                navigate(`/team-detail?teamId=${result.entity.id}&slug=${encodeURIComponent(result.entity.slug || '')}`);
+                return;
+              }
             }}
             className="w-full text-left bg-gray-800/50 border border-gray-700 rounded-lg p-4 hover:border-emerald-500 transition-colors"
           >

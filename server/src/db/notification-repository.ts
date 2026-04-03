@@ -2,7 +2,7 @@ import { getDatabase } from './database';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type NotificationType = 'comment_on_topic' | 'reply_to_comment' | 'like_on_comment';
+export type NotificationType = 'comment_on_topic' | 'reply_to_comment' | 'like_on_comment' | 'reaction_on_topic';
 
 export interface NotificationRow {
   id: number;
@@ -11,6 +11,7 @@ export interface NotificationRow {
   actor_id: number;
   topic_id: number;
   comment_id: number | null;
+  reaction_type: string | null;
   is_read: number;
   created_at: string;
   // joined
@@ -34,16 +35,17 @@ export function createNotification(
   type: NotificationType,
   actorId: number,
   topicId: number,
-  commentId: number | null
+  commentId: number | null,
+  reactionType: string | null = null
 ): void {
   // Don't notify yourself
   if (userId === actorId) return;
 
   const db = getDatabase();
   db.prepare(`
-    INSERT INTO forum_notifications (user_id, type, actor_id, topic_id, comment_id)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(userId, type, actorId, topicId, commentId);
+    INSERT INTO forum_notifications (user_id, type, actor_id, topic_id, comment_id, reaction_type)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(userId, type, actorId, topicId, commentId, reactionType);
 }
 
 export function getUnreadCount(userId: number): number {

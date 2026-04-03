@@ -1,15 +1,16 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ForumTopic, ForumComment, CommentSort, FORUM_TAGS } from '../lib/forum-types';
+import { ForumTopic, ForumComment, CommentSort, FORUM_TAGS, ReactionType } from '../lib/forum-types';
 import {
   apiGetTopic, apiCreateComment, apiDeleteTopic, apiUpdateTopic,
-  apiTogglePin, apiToggleLock,
+  apiTogglePin, apiToggleLock, apiToggleTopicReaction,
 } from '../lib/forum-api';
 import { useAuth } from '../contexts/AuthContext';
 import CommentCard from '../components/forum/CommentCard';
 import CommentForm from '../components/forum/CommentForm';
 import ForumBreadcrumb from '../components/forum/ForumBreadcrumb';
 import UserProfileCard from '../components/forum/UserProfileCard';
+import ReactionBar from '../components/forum/ReactionBar';
 
 export default function TopicDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -22,29 +23,55 @@ export default function TopicDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [replyTo, setReplyTo] = useState<number | null>(null);
+  const [expandedReplies, setExpandedReplies] = useState<Set<number>>(new Set());
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editBody, setEditBody] = useState('');
   const [editTags, setEditTags] = useState<string[]>([]);
 
   const topicId = parseInt(id || '0');
+  const pollRef = useRef<number>();
+  const POLL_INTERVAL = 10_000; // 10 seconds
 
-  const loadTopic = useCallback(async () => {
+  const loadTopic = useCallback(async (silent = false) => {
     if (!topicId) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const data = await apiGetTopic(topicId, sort);
       setTopic(data.topic);
       setComments(data.comments);
     } catch (err: any) {
-      setError(err.message || 'Konu yuklenemedi.');
+      if (!silent) setError(err.message || 'Konu yuklenemedi.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [topicId, sort]);
 
+  // Initial load + auto-poll for live updates
   useEffect(() => {
     loadTopic();
+
+    const startPoll = () => {
+      pollRef.current = window.setInterval(() => loadTopic(true), POLL_INTERVAL);
+    };
+    const stopPoll = () => {
+      if (pollRef.current) window.clearInterval(pollRef.current);
+    };
+
+    startPoll();
+
+    // Pause polling when tab is not visible, resume on focus
+    const onFocus = () => { loadTopic(true); startPoll(); };
+    const onBlur = () => { stopPoll(); };
+
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('blur', onBlur);
+
+    return () => {
+      stopPoll();
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur', onBlur);
+    };
   }, [loadTopic]);
 
   async function handleComment(body: string, image?: File) {
@@ -101,6 +128,19 @@ export default function TopicDetailPage() {
     setTopic(prev => prev ? { ...prev, isLocked: res.locked } : prev);
   }
 
+  async function handleTopicReact(type: ReactionType) {
+    if (!user || !topic) return;
+    try {
+      const res = await apiToggleTopicReaction(topic.id, type);
+      setTopic(prev => prev ? {
+        ...prev,
+        reactions: res.reactions,
+        userReactions: res.userReactions,
+        netLikes: res.netLikes,
+      } : prev);
+    } catch {}
+  }
+
   function handleCommentDeleted(commentId: number) {
     setComments(prev => prev.filter(c => c.id !== commentId));
     setTopic(prev => prev ? { ...prev, commentCount: Math.max(0, prev.commentCount - 1) } : prev);
@@ -108,6 +148,35 @@ export default function TopicDetailPage() {
 
   function handleCommentUpdated(updated: ForumComment) {
     setComments(prev => prev.map(c => c.id === updated.id ? { ...c, body: updated.body, updatedAt: updated.updatedAt } : c));
+  }
+
+  // Group comments into parent + replies (threaded)
+  const parentComments = useMemo(() => comments.filter(c => !c.parentId), [comments]);
+  const repliesByParent = useMemo(() => {
+    const map = new Map<number, ForumComment[]>();
+    for (const c of comments) {
+      if (c.parentId) {
+        const list = map.get(c.parentId) || [];
+        list.push(c);
+        map.set(c.parentId, list);
+      }
+    }
+    return map;
+  }, [comments]);
+
+  function toggleReplies(parentId: number) {
+    setExpandedReplies(prev => {
+      const next = new Set(prev);
+      if (next.has(parentId)) next.delete(parentId);
+      else next.add(parentId);
+      return next;
+    });
+  }
+
+  // Auto-expand replies when replying
+  function handleReplyClick(parentId: number) {
+    setReplyTo(parentId);
+    setExpandedReplies(prev => new Set(prev).add(parentId));
   }
 
   if (loading) return <div className="forum-page"><div className="forum-loading">Yukleniyor...</div></div>;
@@ -199,6 +268,15 @@ export default function TopicDetailPage() {
             {topic.imagePath && (
               <img src={topic.imagePath} alt="Konu gorseli" className="forum-topic-image" loading="lazy" />
             )}
+            <div className="forum-topic-reactions">
+              <ReactionBar
+                reactions={topic.reactions || { like: 0, dislike: 0, fire: 0, heart: 0, laugh: 0, sad: 0, angry: 0 }}
+                userReactions={topic.userReactions || []}
+                netLikes={topic.netLikes ?? 0}
+                onReact={handleTopicReact}
+                disabled={!user}
+              />
+            </div>
           </>
         )}
 
@@ -249,33 +327,70 @@ export default function TopicDetailPage() {
           </div>
         )}
 
-        {/* Comment list */}
+        {/* Comment list — threaded */}
         {comments.length === 0 ? (
           <div className="forum-empty-comments">Henuz yorum yapilmamis.</div>
         ) : (
           <div className="forum-comment-list">
-            {comments.map(c => (
-              <div key={c.id}>
-                <CommentCard
-                  comment={c}
-                  onReply={setReplyTo}
-                  onDeleted={handleCommentDeleted}
-                  onUpdated={handleCommentUpdated}
-                  isLocked={topic.isLocked}
-                />
-                {replyTo === c.id && user && (
-                  <div className="forum-reply-form-wrap">
-                    <CommentForm
-                      onSubmit={handleReply}
-                      placeholder={`@${c.username} icin yanitiniz...`}
-                      buttonText="Yanitla"
-                      autoFocus
-                      onCancel={() => setReplyTo(null)}
-                    />
-                  </div>
-                )}
-              </div>
-            ))}
+            {parentComments.map(c => {
+              const replies = repliesByParent.get(c.id) || [];
+              const replyCount = replies.length;
+              const isExpanded = expandedReplies.has(c.id);
+
+              return (
+                <div key={c.id} className="forum-comment-thread">
+                  <CommentCard
+                    comment={c}
+                    onReply={handleReplyClick}
+                    onDeleted={handleCommentDeleted}
+                    onUpdated={handleCommentUpdated}
+                    isLocked={topic.isLocked}
+                  />
+
+                  {/* Reply toggle button */}
+                  {replyCount > 0 && (
+                    <button
+                      className="forum-replies-toggle"
+                      onClick={() => toggleReplies(c.id)}
+                    >
+                      <span className="forum-replies-toggle-line" />
+                      <span className="forum-replies-toggle-text">
+                        {isExpanded ? '▲ Yanitlari gizle' : `▼ ${replyCount} yanit goster`}
+                      </span>
+                    </button>
+                  )}
+
+                  {/* Replies (collapsible) */}
+                  {isExpanded && replyCount > 0 && (
+                    <div className="forum-replies-list">
+                      {replies.map(reply => (
+                        <CommentCard
+                          key={reply.id}
+                          comment={reply}
+                          onReply={handleReplyClick}
+                          onDeleted={handleCommentDeleted}
+                          onUpdated={handleCommentUpdated}
+                          isLocked={topic.isLocked}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Reply form */}
+                  {replyTo === c.id && user && (
+                    <div className="forum-reply-form-wrap">
+                      <CommentForm
+                        onSubmit={handleReply}
+                        placeholder={`@${c.username} icin yanitiniz...`}
+                        buttonText="Yanitla"
+                        autoFocus
+                        onCancel={() => setReplyTo(null)}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

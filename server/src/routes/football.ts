@@ -184,7 +184,37 @@ router.get('/live', async (_req: Request, res: Response) => {
   } catch (e) { handleError(res, e); }
 });
 
-// IMPORTANT: /live/scheduled must come BEFORE /live/:eventId to avoid "scheduled" being parsed as eventId
+// IMPORTANT: /live/scheduled and /live/finished must come BEFORE /live/:eventId to avoid being parsed as eventId
+router.get('/live/finished', async (_req: Request, res: Response) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    // Fetch both live and scheduled - live contains recently finished matches
+    const [liveData, scheduledData] = await Promise.all([
+      fetchLiveMatches().catch(() => ({ events: [] })),
+      fetchScheduledMatches(today).catch(() => ({ events: [] })),
+    ]);
+
+    // Normalize both responses
+    const liveEvents = Array.isArray(liveData) ? liveData
+      : Array.isArray(liveData?.events) ? liveData.events
+      : Array.isArray(liveData?.matches) ? liveData.matches : [];
+    const scheduledEvents = Array.isArray(scheduledData) ? scheduledData
+      : Array.isArray(scheduledData?.events) ? scheduledData.events
+      : Array.isArray(scheduledData?.matches) ? scheduledData.matches : [];
+
+    // Combine and deduplicate by id
+    const seen = new Set<number>();
+    const combined: any[] = [];
+    for (const m of [...liveEvents, ...scheduledEvents]) {
+      if (m.id && !seen.has(m.id)) {
+        seen.add(m.id);
+        combined.push(m);
+      }
+    }
+    res.json({ events: combined });
+  } catch (e) { handleError(res, e); }
+});
+
 router.get('/live/scheduled', async (req: Request, res: Response) => {
   try {
     const matchDate = req.query.matchDate as string | undefined;

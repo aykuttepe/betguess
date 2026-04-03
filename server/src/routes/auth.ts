@@ -3,13 +3,14 @@ import bcrypt from 'bcrypt';
 import { register, login, toPublicUser } from '../auth/auth-service';
 import { setAuthCookies, clearAuthCookies } from '../auth/cookie-utils';
 import { requireAuth } from '../auth/auth-middleware';
-import { AuthRequest } from '../auth/types';
+import { AuthRequest, SubscriptionTier } from '../auth/types';
 import { getLatestUsers, findByEmail, verifyOtp, markPhoneVerified, findById, getUserDetail } from '../db/user-repository';
 import { whatsappService } from '../services/whatsapp-service';
 import { getDatabase } from '../db/database';
 import { arePhoneNumbersEquivalent, normalizePhoneNumber } from '../services/phone-number';
 import { dispatchWhatsAppOtp, getOtpDeliveryFailurePayload, getOtpDeliveryFailureStatus } from '../services/otp-delivery';
 import { updateOwnProfile } from '../services/profile-update-service';
+import { getUserUsageSummary, getSavedCouponCount } from '../db/usage-repository';
 
 const router = Router();
 
@@ -326,6 +327,152 @@ router.post('/change-password', requireAuth as any, async (req: AuthRequest, res
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─── Subscription usage status ──────────────────────────────────────────────
+
+const TIER_LIMITS_CONFIG: Record<string, Record<SubscriptionTier, number>> = {
+  ai_match:      { free: 0,  pro: 15,  premium: -1 },
+  ai_team:       { free: 0,  pro: 10,  premium: -1 },
+  ai_league:     { free: 0,  pro: 10,  premium: -1 },
+  ai_bulk:       { free: 0,  pro: 5,   premium: 20 },
+  ai_player:     { free: 0,  pro: 10,  premium: -1 },
+  ai_transfer:   { free: 0,  pro: 10,  premium: -1 },
+  forum_topic:   { free: 2,  pro: 10,  premium: -1 },
+  forum_comment: { free: 5,  pro: -1,  premium: -1 },
+  kolon_generate: { free: 5, pro: -1,  premium: -1 },
+};
+
+const COUPON_LIMITS: Record<SubscriptionTier, number> = {
+  free: 3,
+  pro: 20,
+  premium: -1,
+};
+
+const KOLON_LIMITS: Record<SubscriptionTier, number> = {
+  free: -1,      // free: unlimited per generation, but 5 uses/day
+  pro: 50000,
+  premium: 500000,
+};
+
+const HISTORY_LIMITS: Record<SubscriptionTier, number> = {
+  free: 10,
+  pro: 50,
+  premium: 200,
+};
+
+router.get('/usage-status', requireAuth as any, (req: AuthRequest, res: Response) => {
+  try {
+    const user = req.user!;
+    const tier = user.subscriptionTier as SubscriptionTier;
+    const usage = getUserUsageSummary(user.id);
+    const savedCoupons = getSavedCouponCount(user.id);
+
+    const limits: Record<string, { used: number; limit: number }> = {};
+
+    // Daily usage limits
+    for (const [action, tierLimits] of Object.entries(TIER_LIMITS_CONFIG)) {
+      limits[action] = {
+        used: usage[action] || 0,
+        limit: tierLimits[tier],
+      };
+    }
+
+    // Saved coupons (not daily, total)
+    limits['saved_coupons'] = {
+      used: savedCoupons,
+      limit: COUPON_LIMITS[tier],
+    };
+
+    // Kolon limit
+    limits['kolon'] = {
+      used: 0, // tracked client-side per generation
+      limit: KOLON_LIMITS[tier],
+    };
+
+    // History limit
+    limits['history'] = {
+      used: 0,
+      limit: HISTORY_LIMITS[tier],
+    };
+
+    res.json({
+      tier,
+      limits,
+      expiresAt: user.subscriptionExpiresAt,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Public tier info (for pricing page) ─────────────────────────────────────
+
+router.get('/tiers', (_req, res) => {
+  res.json({
+    tiers: [
+      {
+        id: 'free',
+        name: 'Ucretsiz',
+        price: 0,
+        features: [
+          { id: 'kolon', label: 'Kolon Uretimi', value: '5 kullanim/gun (sinirsiz kolon)' },
+          { id: 'sistem', label: 'Sistem Kupon', value: 'Kilitli' },
+          { id: 'coupons', label: 'Kupon Kaydetme', value: 'Max 3' },
+          { id: 'live', label: 'Canli Takip', value: 'Tam erisim' },
+          { id: 'sonuclar', label: 'Sonuclar', value: 'Tam erisim' },
+          { id: 'history', label: 'Gecmis Analiz', value: 'Son 10 program' },
+          { id: 'standings', label: 'Lig Siralamalari', value: 'Tam erisim' },
+          { id: 'values', label: 'Takim Degerleri', value: 'Kilitli' },
+          { id: 'player', label: 'Oyuncu Profil', value: 'Kilitli' },
+          { id: 'match_intel', label: 'Mac Istihbarati', value: 'Kilitli' },
+          { id: 'ai', label: 'AI Analiz', value: 'Kilitli' },
+          { id: 'forum_topic', label: 'Forum Konu Acma', value: '2/gun' },
+          { id: 'forum_comment', label: 'Forum Yorum', value: '5/gun' },
+        ],
+      },
+      {
+        id: 'pro',
+        name: 'Pro',
+        price: null,
+        features: [
+          { id: 'kolon', label: 'Kolon Uretimi', value: 'Max 50.000 kolon' },
+          { id: 'sistem', label: 'Sistem Kupon', value: 'Tam erisim' },
+          { id: 'coupons', label: 'Kupon Kaydetme', value: 'Max 20' },
+          { id: 'live', label: 'Canli Takip', value: 'Tam erisim' },
+          { id: 'sonuclar', label: 'Sonuclar', value: 'Tam erisim' },
+          { id: 'history', label: 'Gecmis Analiz', value: 'Son 50 program' },
+          { id: 'standings', label: 'Lig Siralamalari', value: 'Tam erisim' },
+          { id: 'values', label: 'Takim Degerleri', value: 'Tam erisim' },
+          { id: 'player', label: 'Oyuncu Profil', value: 'Tam erisim' },
+          { id: 'match_intel', label: 'Mac Istihbarati', value: 'Tam erisim' },
+          { id: 'ai', label: 'AI Analiz', value: '15/gun (mac), 10/gun (takim/lig/oyuncu/transfer), 5/gun (toplu)' },
+          { id: 'forum_topic', label: 'Forum Konu Acma', value: '10/gun' },
+          { id: 'forum_comment', label: 'Forum Yorum', value: 'Sinirsiz' },
+        ],
+      },
+      {
+        id: 'premium',
+        name: 'Premium',
+        price: null,
+        features: [
+          { id: 'kolon', label: 'Kolon Uretimi', value: 'Max 500.000 kolon' },
+          { id: 'sistem', label: 'Sistem Kupon', value: 'Tam erisim' },
+          { id: 'coupons', label: 'Kupon Kaydetme', value: 'Sinirsiz' },
+          { id: 'live', label: 'Canli Takip', value: 'Tam erisim' },
+          { id: 'sonuclar', label: 'Sonuclar', value: 'Tam erisim' },
+          { id: 'history', label: 'Gecmis Analiz', value: 'Son 200 program' },
+          { id: 'standings', label: 'Lig Siralamalari', value: 'Tam erisim' },
+          { id: 'values', label: 'Takim Degerleri', value: 'Tam erisim' },
+          { id: 'player', label: 'Oyuncu Profil', value: 'Tam erisim' },
+          { id: 'match_intel', label: 'Mac Istihbarati', value: 'Tam erisim' },
+          { id: 'ai', label: 'AI Analiz', value: 'Sinirsiz + Toplu Analiz (20/gun)' },
+          { id: 'forum_topic', label: 'Forum Konu Acma', value: 'Sinirsiz' },
+          { id: 'forum_comment', label: 'Forum Yorum', value: 'Sinirsiz' },
+        ],
+      },
+    ],
+  });
 });
 
 export default router;

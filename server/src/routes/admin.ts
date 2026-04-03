@@ -5,6 +5,7 @@ import { AuthRequest } from '../auth/types';
 import { listUsers, findById, updateRole, updateTitle, updateSubscription, setActive, getStats, getUserDetail } from '../db/user-repository';
 import { getDatabase } from '../db/database';
 import { whatsappService } from '../services/whatsapp-service';
+import { isSubscriptionSystemActive, setSubscriptionSystemActive } from '../db/settings-repository';
 
 const router = Router();
 
@@ -145,6 +146,22 @@ router.post('/users/:id/reset-password', async (req: AuthRequest, res: Response)
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─── Subscription System Toggle ─────────────────────────────────────────────
+
+router.get('/subscription-active', (_req: AuthRequest, res: Response) => {
+  res.json({ active: isSubscriptionSystemActive() });
+});
+
+router.post('/subscription-active', (req: AuthRequest, res: Response) => {
+  const { active } = req.body;
+  if (typeof active !== 'boolean') {
+    res.status(400).json({ error: '`active` boolean olmalidir.' });
+    return;
+  }
+  setSubscriptionSystemActive(active);
+  res.json({ active, message: active ? 'Abonelik sistemi aktif edildi.' : 'Abonelik sistemi pasif edildi.' });
 });
 
 export default router;

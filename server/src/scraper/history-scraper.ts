@@ -1,5 +1,6 @@
 import { HistoricalMatch, HistoricalProgram, TotoOutcome } from './history-types';
 import { readHistory, writeHistory, getStoredProgramNos } from './history-cache';
+import { LiveMatch, LiveProgram, MatchStatus } from './live-types';
 
 const RESULT_API_URL = 'https://st.nesine.com/v1/Result';
 
@@ -162,4 +163,57 @@ export async function fetchHistoricalResults(
   }
 
   return stored.sort((a, b) => b.programNo - a.programNo).slice(0, count);
+}
+
+/* ─── Live / Partial Results ─── */
+
+function parseLiveProgram(
+  pno: number,
+  resultList: ResultApiResponse['d'] extends infer D ? D extends { programResultList: infer R } ? R : never : never,
+): LiveProgram {
+  const matches: LiveMatch[] = [];
+
+  for (const m of resultList) {
+    const outcome = parseResult(m.result);
+    let status: MatchStatus = 'not_started';
+    if (outcome) {
+      status = 'finished';
+    } else if (m.score && m.score !== '' && m.score !== '-') {
+      status = 'in_progress';
+    }
+
+    matches.push({
+      matchNo: m.number,
+      homeTeam: m.homeTeam,
+      awayTeam: m.awayTeam,
+      result: outcome,
+      score: m.score || null,
+      status,
+    });
+  }
+
+  const finishedCount = matches.filter((m) => m.status === 'finished').length;
+  const inProgressCount = matches.filter((m) => m.status === 'in_progress').length;
+  const notStartedCount = matches.filter((m) => m.status === 'not_started').length;
+
+  return {
+    programNo: pno,
+    totalMatches: matches.length,
+    finishedCount,
+    inProgressCount,
+    notStartedCount,
+    matches,
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
+export async function fetchCurrentProgramNo(): Promise<number | null> {
+  const available = await fetchAvailableProgramList();
+  return available.length > 0 ? available[0].pno : null;
+}
+
+export async function fetchLiveProgram(pno: number): Promise<LiveProgram | null> {
+  const data = await fetchResultApi(pno);
+  if (data.sc !== 200 || !data.d?.programResultList?.length) return null;
+  return parseLiveProgram(pno, data.d.programResultList);
 }
