@@ -192,6 +192,7 @@ export default function HistoryPage() {
           <button
             onClick={() => load(count)}
             disabled={loading}
+            data-feedback="Gecmis analiz yenileniyor..."
             className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded transition-colors disabled:opacity-50"
           >
             {loading ? 'Yukleniyor...' : 'Yenile'}

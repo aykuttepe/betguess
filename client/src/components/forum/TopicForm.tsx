@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { FORUM_TAGS } from '../../lib/forum-types';
+import { showButtonFeedback } from '../../lib/button-feedback';
 
 interface Props {
   onSubmit: (title: string, body: string, image?: File, tags?: string[]) => Promise<void>;
@@ -29,7 +30,7 @@ export default function TopicForm({ onSubmit, onCancel, initialTitle = '', initi
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) {
-      alert('Dosya boyutu en fazla 5MB olabilir.');
+      showButtonFeedback('Dosya boyutu en fazla 5MB olabilir.', 'warning');
       return;
     }
     setImage(file);
@@ -49,7 +50,7 @@ export default function TopicForm({ onSubmit, onCancel, initialTitle = '', initi
     try {
       await onSubmit(title.trim(), body.trim(), image || undefined, selectedTags);
     } catch (err: any) {
-      alert(err.message || 'Hata olustu');
+      showButtonFeedback(err.message || 'Konu kaydedilemedi.', 'error');
     } finally {
       setLoading(false);
     }

@@ -11,11 +11,14 @@ import CommentForm from '../components/forum/CommentForm';
 import ForumBreadcrumb from '../components/forum/ForumBreadcrumb';
 import UserProfileCard from '../components/forum/UserProfileCard';
 import ReactionBar from '../components/forum/ReactionBar';
+import { useConfirm } from '../components/ConfirmDialog';
+import { showButtonFeedback } from '../lib/button-feedback';
 
 export default function TopicDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
+  const confirmAction = useConfirm();
 
   const [topic, setTopic] = useState<ForumTopic | null>(null);
   const [comments, setComments] = useState<ForumComment[]>([]);
@@ -90,12 +93,23 @@ export default function TopicDetailPage() {
   }
 
   async function handleDeleteTopic() {
-    if (!topic || !confirm('Bu konuyu silmek istediginizden emin misiniz?')) return;
+    if (!topic) return;
+
+    const confirmed = await confirmAction({
+      title: 'Konu silinsin mi?',
+      message: 'Bu konu ve bagli yorumlar silinecek. Bu islem geri alinamaz.',
+      confirmLabel: 'Konuyu Sil',
+      tone: 'danger',
+    });
+
+    if (!confirmed) return;
+
     try {
       await apiDeleteTopic(topic.id);
+      showButtonFeedback('Konu silindi.', 'success');
       navigate('/forum');
     } catch (err: any) {
-      alert(err.message);
+      showButtonFeedback(err.message || 'Konu silinemedi.', 'error');
     }
   }
 
@@ -111,8 +125,9 @@ export default function TopicDetailPage() {
       const res = await apiUpdateTopic(topic.id, editTitle, editBody, editTags);
       setTopic(res.topic);
       setEditing(false);
+      showButtonFeedback('Konu guncellendi.', 'success');
     } catch (err: any) {
-      alert(err.message);
+      showButtonFeedback(err.message || 'Konu guncellenemedi.', 'error');
     }
   }
 

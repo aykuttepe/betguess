@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { showButtonFeedback } from '../../lib/button-feedback';
 
 interface Props {
   onSubmit: (body: string, image?: File) => Promise<void>;
@@ -19,7 +20,7 @@ export default function CommentForm({ onSubmit, placeholder = 'Yorumunuzu yazin.
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) {
-      alert('Dosya boyutu en fazla 5MB olabilir.');
+      showButtonFeedback('Dosya boyutu en fazla 5MB olabilir.', 'warning');
       return;
     }
     setImage(file);
@@ -41,7 +42,7 @@ export default function CommentForm({ onSubmit, placeholder = 'Yorumunuzu yazin.
       setBody('');
       clearImage();
     } catch (err: any) {
-      alert(err.message || 'Hata olustu');
+      showButtonFeedback(err.message || 'Yorum gonderilemedi.', 'error');
     } finally {
       setLoading(false);
     }

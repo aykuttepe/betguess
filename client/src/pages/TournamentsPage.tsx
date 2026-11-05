@@ -37,7 +37,17 @@ export default function TournamentsPage() {
   useEffect(() => {
     fetchTournamentCatalog()
       .then((data) => {
-        const list = Object.entries(data.tournaments || {}).map(([slug, tournament]) => ({ ...tournament, slug }));
+        const fromSections = [
+          ...(data.leagues || []).map((item) => ({ ...item, type: 'league' as const })),
+          ...(data.cups || []).map((item) => ({ ...item, type: 'cup' as const })),
+        ];
+        const list = fromSections.length > 0
+          ? fromSections
+          : Object.entries(data.tournaments || {}).map(([slug, tournament]) => ({
+            ...tournament,
+            slug,
+            type: tournament.type || 'cup',
+          }));
         setTournaments(list.sort((a, b) => a.name.localeCompare(b.name)));
       })
       .catch((err: any) => setError(err.message || 'Turnuvalar yuklenemedi'))
@@ -78,6 +88,14 @@ export default function TournamentsPage() {
     () => tournaments.find((item) => item.id === selectedTournamentId)?.name || 'Turnuva',
     [tournaments, selectedTournamentId]
   );
+  const selectedTournament = useMemo(
+    () => tournaments.find((item) => item.id === selectedTournamentId) || null,
+    [tournaments, selectedTournamentId]
+  );
+  const groupedTournaments = useMemo(() => ({
+    league: tournaments.filter((item) => item.type === 'league'),
+    cup: tournaments.filter((item) => item.type !== 'league'),
+  }), [tournaments]);
 
   function selectTournament(id: number) {
     setSelectedTournamentId(id);
@@ -102,17 +120,20 @@ export default function TournamentsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-[300px,1fr] gap-6">
           {/* Tournament list */}
           <section className="bg-gray-800/50 rounded-lg border border-gray-700 overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-700 text-white font-semibold">Turnuva Listesi</div>
-            <div className="max-h-[75vh] overflow-auto divide-y divide-gray-700/60">
-              {tournaments.map((t) => (
-                <button
-                  key={(t as any).slug || t.id}
-                  onClick={() => selectTournament(t.id)}
-                  className={`w-full text-left px-4 py-2.5 transition-colors ${selectedTournamentId === t.id ? 'bg-emerald-500/10 text-emerald-300' : 'text-gray-200 hover:bg-gray-700/40'}`}
-                >
-                  <div className="font-medium text-sm">{t.name}</div>
-                </button>
-              ))}
+            <div className="px-4 py-3 border-b border-gray-700 text-white font-semibold">Ligler ve Turnuvalar</div>
+            <div className="max-h-[75vh] overflow-auto">
+              <TournamentGroup
+                title="Ligler"
+                items={groupedTournaments.league}
+                selectedTournamentId={selectedTournamentId}
+                onSelect={selectTournament}
+              />
+              <TournamentGroup
+                title="Turnuvalar"
+                items={groupedTournaments.cup}
+                selectedTournamentId={selectedTournamentId}
+                onSelect={selectTournament}
+              />
             </div>
           </section>
 
@@ -121,7 +142,12 @@ export default function TournamentsPage() {
             {/* Season selector */}
             {selectedTournamentId && (
               <section className="bg-gray-800/50 rounded-lg border border-gray-700 overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-700 text-white font-semibold">{selectedTournamentName}</div>
+                <div className="px-4 py-3 border-b border-gray-700 flex items-center justify-between gap-3">
+                  <span className="text-white font-semibold">{selectedTournamentName}</span>
+                  <span className="text-[10px] uppercase tracking-wide text-gray-400">
+                    {selectedTournament?.type === 'league' ? 'Lig' : 'Turnuva'}
+                  </span>
+                </div>
                 <div className="px-4 py-3 flex gap-2 flex-wrap">
                   {seasons.map((season) => (
                     <button
@@ -174,6 +200,39 @@ export default function TournamentsPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function TournamentGroup({
+  title,
+  items,
+  selectedTournamentId,
+  onSelect,
+}: {
+  title: string;
+  items: TournamentSummary[];
+  selectedTournamentId: number | null;
+  onSelect: (id: number) => void;
+}) {
+  if (items.length === 0) return null;
+
+  return (
+    <div className="border-b border-gray-700/60 last:border-b-0">
+      <div className="px-4 py-2 bg-gray-900/40 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+        {title}
+      </div>
+      <div className="divide-y divide-gray-700/60">
+        {items.map((t) => (
+          <button
+            key={t.slug || t.id}
+            onClick={() => onSelect(t.id)}
+            className={`w-full text-left px-4 py-2.5 transition-colors ${selectedTournamentId === t.id ? 'bg-emerald-500/10 text-emerald-300' : 'text-gray-200 hover:bg-gray-700/40'}`}
+          >
+            <div className="font-medium text-sm">{t.name}</div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

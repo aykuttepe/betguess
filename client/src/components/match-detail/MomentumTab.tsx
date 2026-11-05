@@ -26,6 +26,10 @@ export default function MomentumTab({ eventId }: Props) {
   const points: MomentumGraphPoint[] = data.graphPoints || extractPoints(data);
 
   if (points.length === 0) {
+    if (Object.keys(data).length === 0 || (data.graphPoints && data.graphPoints.length === 0)) {
+      return <p className="text-gray-400 text-sm">Momentum verisi bulunamadi.</p>;
+    }
+
     return (
       <div className="bg-gray-800/60 border border-gray-700 rounded-lg p-4">
         <h4 className="text-white font-semibold text-sm mb-2">Ham Veri</h4>

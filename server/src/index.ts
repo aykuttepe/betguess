@@ -14,8 +14,10 @@ import aiRouter from './routes/ai';
 import matchIntelRouter from './routes/match-intel';
 import teamStatsRouter from './routes/team-stats';
 import footballRouter from './routes/football';
+import publicFootballRouter from './routes/public-football';
 import historyRouter from './routes/history';
 import couponsRouter from './routes/coupons';
+import friendsRouter from './routes/friends';
 import { getCached } from './scraper/cache';
 import { scrapeMatches } from './scraper/nesine-scraper';
 import forumRouter from './routes/forum';
@@ -59,17 +61,21 @@ app.get('/api/health', (_req, res) => {
 // Public live tracking (program data from Nesine)
 app.use('/api', liveTrackingRouter);
 
+// Public match intelligence (SofaScore-backed)
+app.use('/api', matchIntelRouter);
+app.use('/api', teamStatsRouter);
+app.use('/api/football', publicFootballRouter);
+
 // Protected API routes
 app.use('/api', requireAuth as any);
 app.use('/api', matchesRouter);
 app.use('/api', statsRouter);
-app.use('/api', matchIntelRouter);
-app.use('/api', teamStatsRouter);
 app.use('/api/football', footballRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api', historyRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/coupons', couponsRouter);
+app.use('/api/friends', friendsRouter);
 
 const clientDist = path.join(__dirname, '../../client/dist');
 app.use(express.static(clientDist, {

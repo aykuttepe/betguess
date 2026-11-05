@@ -23,9 +23,19 @@ cloudflared*.log
 .env
 .env.*
 .env.local
+!.env.example
 
 # WhatsApp auth session (browser cache)
 server/whatsapp_auth/
 
 # Build output
 server/dist/
+*.tsbuildinfo
+client/dist.zip
+
+# Runtime data and local sessions
+server/.cache/
+server/uploads/
+server/cookies.txt
+.claude/settings.local.json
+*.tmp

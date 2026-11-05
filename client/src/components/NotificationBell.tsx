@@ -59,8 +59,29 @@ function notifMessage(n: ForumNotification): string {
       return `${n.actorUsername} yorumunuzu ${reactionLabel || 'begendi'}`;
     case 'reaction_on_topic':
       return `${n.actorUsername} konunuza ${reactionLabel || 'tepki verdi'}`;
+    case 'friend_request':
+      return `${n.actorUsername} size arkadaşlık isteği gönderdi`;
+    case 'friend_accepted':
+      return `${n.actorUsername} arkadaşlık isteğinizi kabul etti`;
+    case 'friend_declined':
+      return `${n.actorUsername} arkadaşlık isteğinizi reddetti`;
+    case 'coupon_shared':
+      return `${n.actorUsername} sizinle kupon paylaştı`;
     default:
       return `${n.actorUsername} bir etkilesimde bulundu`;
+  }
+}
+
+function notifContext(n: ForumNotification): string {
+  switch (n.type) {
+    case 'friend_request':
+    case 'friend_accepted':
+    case 'friend_declined':
+      return 'Arkadaşlar ve İstekler';
+    case 'coupon_shared':
+      return 'Kuponlarım';
+    default:
+      return n.topicTitle || 'Forum';
   }
 }
 
@@ -74,6 +95,10 @@ function notifIcon(n: ForumNotification): string {
     case 'reply_to_comment': return '↩️';
     case 'like_on_comment': return '👍';
     case 'reaction_on_topic': return '🔥';
+    case 'friend_request': return '👥';
+    case 'friend_accepted': return '✓';
+    case 'friend_declined': return '!';
+    case 'coupon_shared': return '🎫';
     default: return '🔔';
   }
 }
@@ -176,7 +201,25 @@ export default function NotificationBell() {
       setUnreadCount(prev => Math.max(0, prev - 1));
     }
     setIsOpen(false);
-    navigate(`/forum/${n.topicId}`);
+    if (n.type === 'friend_request') {
+      navigate('/arkadaslar?tab=requests');
+      return;
+    }
+    if (n.type === 'friend_accepted') {
+      navigate('/arkadaslar?tab=friends');
+      return;
+    }
+    if (n.type === 'friend_declined') {
+      navigate('/arkadaslar?tab=requests');
+      return;
+    }
+    if (n.type === 'coupon_shared') {
+      navigate('/kuponlarim?tab=gelen');
+      return;
+    }
+    if (n.topicId) {
+      navigate(`/forum/${n.topicId}`);
+    }
   }
 
   async function handleMarkAllRead() {
@@ -227,7 +270,7 @@ export default function NotificationBell() {
                     </span>
                     <div className="notif-item-body">
                       <p className="notif-item-msg">{notifMessage(n)}</p>
-                      <p className="notif-item-topic">{n.topicTitle}</p>
+                      <p className="notif-item-topic">{notifContext(n)}</p>
                       <p className="notif-item-time">{timeAgo(n.createdAt)}</p>
                     </div>
                   </button>
@@ -246,7 +289,7 @@ export default function NotificationBell() {
                         </span>
                         <div className="notif-item-body">
                           <p className="notif-item-msg">{notifMessage(n)}</p>
-                          <p className="notif-item-topic">{n.topicTitle}</p>
+                          <p className="notif-item-topic">{notifContext(n)}</p>
                           <p className="notif-item-time">{timeAgo(n.createdAt)}</p>
                         </div>
                       </button>

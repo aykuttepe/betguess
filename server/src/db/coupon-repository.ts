@@ -9,6 +9,15 @@ export interface CouponRow {
   created_at: string;
 }
 
+export interface SharedCouponRow extends CouponRow {
+  share_id: number;
+  sender_id: number;
+  sender_username: string;
+  sender_email: string;
+  shared_at: string;
+  share_message: string | null;
+}
+
 export function saveCoupon(userId: number, type: string, week: string, data: any): CouponRow {
   const db = getDatabase();
   const stmt = db.prepare(`
@@ -30,6 +39,56 @@ export function getUserCoupons(userId: number, type?: string): CouponRow[] {
     return db.prepare('SELECT * FROM coupons WHERE user_id = ? AND type = ? ORDER BY created_at DESC').all(userId, type) as CouponRow[];
   }
   return db.prepare('SELECT * FROM coupons WHERE user_id = ? ORDER BY created_at DESC').all(userId) as CouponRow[];
+}
+
+export function shareCouponWithUser(
+  couponId: number,
+  senderId: number,
+  recipientId: number,
+  message: string | null = null,
+): number {
+  const db = getDatabase();
+  const coupon = db.prepare('SELECT id FROM coupons WHERE id = ? AND user_id = ?').get(couponId, senderId);
+
+  if (!coupon) {
+    throw new Error('Coupon not found or unauthorized');
+  }
+
+  db.prepare(`
+    INSERT OR REPLACE INTO coupon_shares (coupon_id, sender_id, recipient_id, message, created_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+  `).run(couponId, senderId, recipientId, message);
+
+  const row = db.prepare(`
+    SELECT id FROM coupon_shares
+    WHERE coupon_id = ? AND sender_id = ? AND recipient_id = ?
+  `).get(couponId, senderId, recipientId) as { id: number };
+
+  return row.id;
+}
+
+export function getSharedCouponsForUser(userId: number): SharedCouponRow[] {
+  const db = getDatabase();
+  return db.prepare(`
+    SELECT
+      c.id,
+      c.user_id,
+      c.type,
+      c.week,
+      c.data,
+      c.created_at,
+      s.id AS share_id,
+      s.sender_id,
+      u.username AS sender_username,
+      u.email AS sender_email,
+      s.created_at AS shared_at,
+      s.message AS share_message
+    FROM coupon_shares s
+    INNER JOIN coupons c ON c.id = s.coupon_id
+    INNER JOIN users u ON u.id = s.sender_id
+    WHERE s.recipient_id = ?
+    ORDER BY s.created_at DESC
+  `).all(userId) as SharedCouponRow[];
 }
 
 export function deleteCoupon(id: number, userId: number): boolean {

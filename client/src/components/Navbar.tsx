@@ -263,6 +263,15 @@ export default function Navbar() {
                           </svg>
                           Profil ve Ayarlar
                         </button>
+                        <button
+                          onClick={() => navigate('/arkadaslar')}
+                          className={`navbar-dropdown-settings ${location.pathname === '/arkadaslar' ? 'bg-white/8 text-white' : ''}`}
+                        >
+                          <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                            <path d="M7 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM14.5 9a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM1.615 16.428A1.5 1.5 0 0 0 3.053 18h7.894a1.5 1.5 0 0 0 1.438-1.572C12.15 13.5 10.017 11 7 11s-5.15 2.5-5.385 5.428ZM13.69 17.995h3.257a1.5 1.5 0 0 0 1.438-1.572C18.17 13.744 16.38 11.43 13.8 11.068a6.384 6.384 0 0 1 1.394 4.723 2.928 2.928 0 0 1-1.504 2.204Z" />
+                          </svg>
+                          Arkadaşlar ve İstekler
+                        </button>
                         <button onClick={() => navigate('/pricing')} className="navbar-dropdown-settings">
                           <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
                             <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
@@ -442,6 +451,9 @@ export default function Navbar() {
                   <div className="mt-3 flex gap-2">
                     <NavLink to="/profile" className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-center text-sm text-slate-100">
                       Profil
+                    </NavLink>
+                    <NavLink to="/arkadaslar" className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-center text-sm text-slate-100">
+                      Arkadaş
                     </NavLink>
                     <button
                       onClick={handleLogout}

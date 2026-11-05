@@ -91,7 +91,11 @@ function getLeagueSlug(code: string): string {
         ES1: 'laliga',
         IT1: 'serie-a',
         L1: 'bundesliga',
+        FR1: 'ligue-1',
+        NL1: 'eredivisie',
+        PO1: 'liga-portugal',
         GB2: 'championship',
+        TR2: '1-lig',
     };
     return slugs[code] || 'lig';
 }

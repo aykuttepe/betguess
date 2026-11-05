@@ -16,6 +16,7 @@ import type {
   TeamListItem,
   TeamDetail,
   PlayerProfile,
+  PlayerSearchResult,
   MatchIntelResponse,
   TeamStatsResponse,
   TournamentMapResponse,
@@ -187,12 +188,20 @@ export function refreshTeamDetail(teamId: string, slug: string, league: string):
   });
 }
 
-export function fetchPlayerProfile(playerId: string, slug = ''): Promise<PlayerProfile> {
-  return fetchJson(`${BASE}/players/${playerId}/profile?slug=${encodeURIComponent(slug)}`);
+export function searchPlayers(query: string, league = ''): Promise<{ results: PlayerSearchResult[] }> {
+  const params = new URLSearchParams();
+  if (query) params.set('q', query);
+  if (league) params.set('league', league);
+  const q = params.toString();
+  return fetchJson(`${BASE}/players/search${q ? `?${q}` : ''}`);
 }
 
-export function refreshPlayerProfile(playerId: string, slug = ''): Promise<PlayerProfile> {
-  return fetchJson(`${BASE}/players/${playerId}/profile/refresh?slug=${encodeURIComponent(slug)}`, {
+export function fetchPlayerProfile(playerId: string, slug = '', source: 'tm' | 'sofa' = 'sofa'): Promise<PlayerProfile> {
+  return fetchJson(`${BASE}/players/${playerId}/profile?slug=${encodeURIComponent(slug)}&source=${encodeURIComponent(source)}`);
+}
+
+export function refreshPlayerProfile(playerId: string, slug = '', source: 'tm' | 'sofa' = 'sofa'): Promise<PlayerProfile> {
+  return fetchJson(`${BASE}/players/${playerId}/profile/refresh?slug=${encodeURIComponent(slug)}&source=${encodeURIComponent(source)}`, {
     method: 'POST',
   });
 }

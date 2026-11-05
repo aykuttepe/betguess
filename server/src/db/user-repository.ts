@@ -31,6 +31,22 @@ export function findByEmail(email: string): UserRow | undefined {
   return db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase().trim()) as UserRow | undefined;
 }
 
+export function findByUsername(username: string): UserRow | undefined {
+  const db = getDatabase();
+  return db.prepare('SELECT * FROM users WHERE username = ?').get(username.trim()) as UserRow | undefined;
+}
+
+export function findByUsernameOrEmail(identifier: string): UserRow | undefined {
+  const normalized = identifier.trim();
+  if (!normalized) return undefined;
+
+  if (normalized.includes('@')) {
+    return findByEmail(normalized);
+  }
+
+  return findByUsername(normalized);
+}
+
 export function findByPhone(phoneNumber: string): UserRow | undefined {
   const db = getDatabase();
   return db.prepare('SELECT * FROM users WHERE phone_number = ?').get(phoneNumber.trim()) as UserRow | undefined;

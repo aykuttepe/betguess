@@ -13,6 +13,23 @@ const HEADERS = {
     'Accept-Language': 'tr-TR,tr;q=0.9,en;q=0.8',
 };
 
+function cleanText(value: string | undefined | null): string {
+    return (value || '').replace(/\s+/g, ' ').trim();
+}
+
+function absoluteTransfermarktUrl(src?: string): string | undefined {
+    if (!src) return undefined;
+    if (src.startsWith('//')) return `https:${src}`;
+    if (src.startsWith('/')) return `${TM_BASE}${src}`;
+    return src;
+}
+
+function extractInfo(text: string, label: string, nextLabels: string[]): string {
+    const next = nextLabels.map((item) => `${item}:`).join('|');
+    const regex = new RegExp(`${label}:\\s*(.+?)(?=\\s+(?:${next})|$)`, 'i');
+    return cleanText(text.match(regex)?.[1] || '');
+}
+
 /**
  * Oyuncu profil sayfasindan detaylari ceker
  */
@@ -34,14 +51,14 @@ export async function scrapePlayerDetail(
     const $ = cheerio.load(profileHtml);
 
     // Temel bilgiler
-    const name = $('h1[class*="data-header"]').text().trim()
-        || $('header .data-header__headline-wrapper').text().trim()
+    const titleName = $('title').text().match(/^(.+?)\s+-/)?.[1];
+    const name = cleanText(titleName)
+        || cleanText($('h1[class*="data-header"]').text()).replace(/^#\d+\s*/, '')
         || playerSlug.replace(/-/g, ' ');
 
-    const imageUrl = $('img[class*="data-header__profile-image"]').attr('src') || '';
+    const imageUrl = absoluteTransfermarktUrl($('img[class*="data-header__profile-image"]').attr('src'));
 
     // Header info box bilgileri
-    const infoItems = $('[class*="info-table"] span, [class*="data-header__items"] li');
     let position = '';
     let age = 0;
     let nationality = '';
@@ -52,9 +69,10 @@ export async function scrapePlayerDetail(
     // data-header__details icinden bilgileri cek
     const headerText = $('[class*="data-header__details"]').text();
     const infoTable = $('table.auflistung, [class*="info-table"]');
+    const infoText = cleanText(infoTable.text() || headerText);
 
     infoTable.find('tr, li').each((_, el) => {
-        const text = $(el).text().trim();
+        const text = cleanText($(el).text());
         if (text.includes('Pozisyon') || text.includes('Position')) {
             position = text.replace(/Pozisyon:?|Position:?/i, '').trim();
         }
@@ -77,6 +95,14 @@ export async function scrapePlayerDetail(
         }
     });
 
+    const ageFromInfo = infoText.match(/Doğum tarihi\/Yaş:\s*[^()]+\((\d{1,2})\)/i);
+    if (!age && ageFromInfo) age = parseInt(ageFromInfo[1], 10);
+    if (!height) height = extractInfo(infoText, 'Boy', ['Uyruk', 'Mevki', 'Ayak']);
+    if (!nationality) nationality = extractInfo(infoText, 'Uyruk', ['Mevki', 'Ayak', 'Güncel kulüp']);
+    if (!position) position = extractInfo(infoText, 'Mevki', ['Ayak', 'Güncel kulüp']);
+    if (!foot) foot = extractInfo(infoText, 'Ayak', ['Güncel kulüp', 'Sözleşme tarihi', 'Sözleşme sonu']);
+    if (!currentClub) currentClub = extractInfo(infoText, 'Güncel kulüp', ['Sözleşme tarihi', 'Sözleşme sonu', 'Sosyal medya']);
+
     // Yas data-header'dan
     if (!age) {
         const ageMatch = headerText.match(/(\d+)\s*Yaş/i);
@@ -84,9 +110,10 @@ export async function scrapePlayerDetail(
     }
 
     // Piyasa degeri
-    const marketValue = $('[class*="data-header__market-value"]').text().trim()
+    const rawMarketValue = $('[class*="data-header__market-value"]').text().trim()
         || $('[class*="waehrung"]').first().text().trim()
         || '-';
+    const marketValue = rawMarketValue.match(/[\d.,]+\s*(?:mil\.|bin|milyon)?\s*€/i)?.[0] || rawMarketValue;
 
     // Kariyer istatistikleri — performans tablosu
     let appearances = 0, goals = 0, assists = 0;

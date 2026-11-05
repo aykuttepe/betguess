@@ -4,6 +4,8 @@ import { apiToggleReaction, apiDeleteComment, apiUpdateComment } from '../../lib
 import { useAuth } from '../../contexts/AuthContext';
 import ReactionBar from './ReactionBar';
 import UserProfileCard from './UserProfileCard';
+import { useConfirm } from '../ConfirmDialog';
+import { showButtonFeedback } from '../../lib/button-feedback';
 
 interface Props {
   comment: ForumComment;
@@ -31,6 +33,7 @@ function timeAgo(dateStr: string): string {
 
 export default function CommentCard({ comment, onReply, onDeleted, onUpdated, isLocked }: Props) {
   const { user, isAdmin } = useAuth();
+  const confirmAction = useConfirm();
   const [c, setC] = useState(comment);
   const [editing, setEditing] = useState(false);
   const [editBody, setEditBody] = useState(comment.body);
@@ -57,12 +60,21 @@ export default function CommentCard({ comment, onReply, onDeleted, onUpdated, is
   }
 
   async function handleDelete() {
-    if (!confirm('Bu yorumu silmek istediginizden emin misiniz?')) return;
+    const confirmed = await confirmAction({
+      title: 'Yorum silinsin mi?',
+      message: 'Bu yorum kalici olarak silinecek. Bu islem geri alinamaz.',
+      confirmLabel: 'Yorumu Sil',
+      tone: 'danger',
+    });
+
+    if (!confirmed) return;
+
     try {
       await apiDeleteComment(c.id);
       onDeleted(c.id);
+      showButtonFeedback('Yorum silindi.', 'success');
     } catch (err: any) {
-      alert(err.message);
+      showButtonFeedback(err.message || 'Yorum silinemedi.', 'error');
     }
   }
 
@@ -73,8 +85,9 @@ export default function CommentCard({ comment, onReply, onDeleted, onUpdated, is
       setC(prev => ({ ...prev, body: res.comment.body, updatedAt: res.comment.updatedAt }));
       onUpdated({ ...c, body: res.comment.body, updatedAt: res.comment.updatedAt });
       setEditing(false);
+      showButtonFeedback('Yorum guncellendi.', 'success');
     } catch (err: any) {
-      alert(err.message);
+      showButtonFeedback(err.message || 'Yorum guncellenemedi.', 'error');
     }
   }
 

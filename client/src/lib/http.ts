@@ -69,12 +69,18 @@ export async function apiFetchJson<T>(
     },
   });
 
-  const payload = toErrorPayload(
-    await response.json().catch(() => ({ error: defaultError })),
-    defaultError,
-  );
+  let jsonResult;
+  let parseFailed = false;
+  try {
+    jsonResult = await response.json();
+  } catch (err) {
+    parseFailed = true;
+    jsonResult = { error: 'Gecersiz sunucu yaniti' };
+  }
 
-  if (!response.ok) {
+  const payload = toErrorPayload(jsonResult, defaultError);
+
+  if (!response.ok || parseFailed) {
     if (response.status === 401 && redirectOn401) {
       notifyUnauthorized();
     }
@@ -85,7 +91,7 @@ export async function apiFetchJson<T>(
       window.dispatchEvent(new CustomEvent(RATE_LIMITED_EVENT, { detail: payload }));
     }
 
-    throw new HttpApiError(payload.error || `HTTP ${response.status}`, response.status, payload);
+    throw new HttpApiError(payload.error || `HTTP ${response.status}`, response.status || 500, payload);
   }
 
   return payload as T;

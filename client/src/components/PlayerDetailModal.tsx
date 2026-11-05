@@ -13,23 +13,27 @@ export default function PlayerDetailModal({ player, onClose }: PlayerDetailModal
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const detailPlayerId = player.tmPlayerId || player.playerId || '';
+  const detailPlayerSlug = player.tmPlayerSlug || player.playerSlug || '';
+  const profileSource: 'tm' | 'sofa' = player.tmPlayerId ? 'tm' : 'sofa';
 
   const loadProfile = useCallback(async () => {
-    if (!player.playerId) {
-      setError('Oyuncu detay bilgisi mevcut degil');
+    const numericId = parseInt(detailPlayerId, 10);
+    if (!detailPlayerId || isNaN(numericId)) {
+      setError('Bu oyuncu için detaylı profil bilgisi mevcut değil.');
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchPlayerProfile(player.playerId, player.playerSlug || '');
+      const data = await fetchPlayerProfile(String(numericId), detailPlayerSlug, profileSource);
       setProfile(data);
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [player.playerId, player.playerSlug]);
+  }, [detailPlayerId, detailPlayerSlug, profileSource]);
 
   useEffect(() => {
     loadProfile();
@@ -46,6 +50,12 @@ export default function PlayerDetailModal({ player, onClose }: PlayerDetailModal
   const playerInfo = profile
     ? `Pozisyon: ${profile.position}, Yas: ${profile.age}, Uyruk: ${profile.nationality}, Deger: ${profile.marketValue}, Mac: ${profile.appearances}, Gol: ${profile.goals}, Asist: ${profile.assists}, Transfer: ${profile.transferHistory.length}, Sakatlik: ${profile.injuries.length} kayit, Mevcut sakatlik: ${profile.currentInjury || 'Yok'}`
     : `Pozisyon: ${player.position}, Yas: ${player.age}, Mac: ${player.appearances}, Gol: ${player.goals}, Asist: ${player.assists}`;
+  const appearances = profile?.appearances || player.appearances;
+  const goals = profile?.goals || player.goals;
+  const assists = profile?.assists || player.assists;
+  const yellowCards = profile?.yellowCards || player.yellowCards;
+  const redCards = profile?.redCards || player.redCards + player.secondYellows;
+  const minutesPlayed = profile?.minutesPlayed || player.minutesPlayed;
 
   return (
     <div
@@ -91,22 +101,24 @@ export default function PlayerDetailModal({ player, onClose }: PlayerDetailModal
             <InfoCard label="Yas" value={String(profile?.age || player.age)} />
             <InfoCard label="Uyruk" value={profile?.nationality || player.nationality} />
             <InfoCard label="Pozisyon" value={profile?.position || player.position} />
-            {profile?.height && <InfoCard label="Boy" value={profile.height} />}
-            {profile?.foot && <InfoCard label="Ayak" value={profile.foot} />}
-            {profile?.marketValue && profile.marketValue !== '-' && (
-              <InfoCard label="Piyasa Degeri" value={profile.marketValue} accent />
+            {player.shirtNumber && <InfoCard label="Forma" value={player.shirtNumber} />}
+            {(profile?.height || player.height) && <InfoCard label="Boy" value={profile?.height || player.height || '-'} />}
+            {(profile?.foot || player.foot) && <InfoCard label="Ayak" value={profile?.foot || player.foot || '-'} />}
+            {player.contractEnd && <InfoCard label="Sozlesme" value={player.contractEnd} />}
+            {(profile?.marketValue || player.marketValue) && (
+              <InfoCard label="Piyasa Degeri" value={profile?.marketValue || player.marketValue} accent />
             )}
           </div>
 
           <div>
             <h4 className="text-sm font-bold text-gray-300 mb-2">Sezon Istatistikleri</h4>
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-              <StatBox label="Mac" value={profile?.appearances ?? player.appearances} />
-              <StatBox label="Gol" value={profile?.goals ?? player.goals} color="text-emerald-400" />
-              <StatBox label="Asist" value={profile?.assists ?? player.assists} color="text-blue-400" />
-              <StatBox label="Sari" value={profile?.yellowCards ?? player.yellowCards} color="text-yellow-400" />
-              <StatBox label="Kirmizi" value={profile?.redCards ?? (player.redCards + player.secondYellows)} color="text-red-400" />
-              <StatBox label="Dakika" value={profile?.minutesPlayed ?? player.minutesPlayed} />
+              <StatBox label="Mac" value={appearances} />
+              <StatBox label="Gol" value={goals} color="text-emerald-400" />
+              <StatBox label="Asist" value={assists} color="text-blue-400" />
+              <StatBox label="Sari" value={yellowCards} color="text-yellow-400" />
+              <StatBox label="Kirmizi" value={redCards} color="text-red-400" />
+              <StatBox label="Dakika" value={minutesPlayed} />
             </div>
           </div>
 

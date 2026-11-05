@@ -7,7 +7,7 @@ interface ApiMatch {
   away_team?: { name: string; short_name?: string; id?: number };
   homeTeam?: { name: string; id?: number };
   awayTeam?: { name: string; id?: number };
-  tournament?: { name?: string; id?: number; category?: string };
+  tournament?: { name?: string; id?: number; category?: string | { name?: string; [key: string]: any }; [key: string]: any };
   start_time?: string;
   startTimestamp?: number;
   status_code?: number;
@@ -22,27 +22,41 @@ interface ApiMatch {
 type LiveTab = 'devam' | 'biten' | 'kadin';
 
 const PRIORITY_LEAGUES = [
+  'premier league',
+  'la liga',
+  'serie a',
+  'bundesliga',
+  'ligue 1',
   'champions league',
   'europa league',
   'conference league',
-  'premier league',
-  'la liga',
-  'bundesliga',
-  'serie a',
-  'ligue 1',
   'super lig',
   'süper lig',
 ];
 
+const TOP_FIVE_LEAGUES = ['premier league', 'la liga', 'serie a', 'bundesliga', 'ligue 1'];
+const EUROPEAN_CUPS = ['champions league', 'europa league', 'conference league'];
+const ALWAYS_SHOW_CHIP_KEYS = new Set(['top-five', ...TOP_FIVE_LEAGUES, 'europe-cups']);
+const TOP_FIVE_GROUPS = [
+  { match: 'premier league', label: 'Premier League - England', category: 'England' },
+  { match: 'la liga', label: 'La Liga', category: 'Spain' },
+  { match: 'serie a', label: 'Serie A', category: 'Italy' },
+  { match: 'bundesliga', label: 'Bundesliga', category: 'Germany' },
+  { match: 'ligue 1', label: 'Ligue 1', category: 'France' },
+];
+
 const POPULAR_CHIPS: { key: string; label: string; flag: string; match: string }[] = [
+  { key: 'top-five', label: '5 Büyük Lig', flag: '\u{1F1EA}\u{1F1FA}', match: 'top-five' },
   { key: 'premier league', label: 'Premier League', flag: '\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}', match: 'premier league' },
   { key: 'la liga', label: 'La Liga', flag: '\u{1F1EA}\u{1F1F8}', match: 'la liga' },
   { key: 'serie a', label: 'Serie A', flag: '\u{1F1EE}\u{1F1F9}', match: 'serie a' },
   { key: 'bundesliga', label: 'Bundesliga', flag: '\u{1F1E9}\u{1F1EA}', match: 'bundesliga' },
   { key: 'ligue 1', label: 'Ligue 1', flag: '\u{1F1EB}\u{1F1F7}', match: 'ligue 1' },
-  { key: 'super lig', label: 'Super Lig', flag: '\u{1F1F9}\u{1F1F7}', match: 'super lig' },
+  { key: 'europe-cups', label: 'Avrupa Kupaları', flag: '\u{1F3C6}', match: 'europe-cups' },
   { key: 'champions league', label: 'UCL', flag: '\u{1F3C6}', match: 'champions league' },
   { key: 'europa league', label: 'UEL', flag: '\u{1F3C6}', match: 'europa league' },
+  { key: 'conference league', label: 'UECL', flag: '\u{1F3C6}', match: 'conference league' },
+  { key: 'super lig', label: 'Super Lig', flag: '\u{1F1F9}\u{1F1F7}', match: 'super lig' },
 ];
 
 const WOMEN_KEYWORDS = ['women', 'feminino', 'frauen', 'feminin', 'femenin', 'kadın', 'female', 'w.'];
@@ -68,15 +82,69 @@ function getAwayScore(match: ApiMatch): string {
 }
 
 function getTournament(match: ApiMatch): string {
-  return match.tournament?.name || '-';
+  const name = match.tournament?.name;
+  if (!name) return '-';
+  if (typeof name === 'string') return name;
+  return String(name) || '-';
 }
 
 function getStatus(match: ApiMatch): string {
   return match.status_description || match.status?.description || match.status?.type || '-';
 }
 
+function getStartDate(match: ApiMatch): Date | null {
+  if (match.startTimestamp) {
+    const date = new Date(match.startTimestamp * 1000);
+    return isNaN(date.getTime()) ? null : date;
+  }
+  if (match.start_time) {
+    const date = new Date(match.start_time);
+    return isNaN(date.getTime()) ? null : date;
+  }
+  return null;
+}
+
 function getCategory(match: ApiMatch): string {
-  return match.tournament?.category || 'Football';
+  const cat = match.tournament?.category;
+  if (!cat) return 'Football';
+  if (typeof cat === 'string') return cat;
+  // SofaScore bazen category'yi { name: "England" } şeklinde nesne olarak gönderir
+  if (typeof cat === 'object' && (cat as any).name) return String((cat as any).name);
+  return String(cat) || 'Football';
+}
+
+function getLeagueKey(match: ApiMatch): string {
+  return `${getTournament(match)}|||${getCategory(match)}`;
+}
+
+function getLeagueDisplayName(name: string, category: string): string {
+  const normalizedCategory = category.trim();
+  if (normalizedCategory.toLowerCase() === name.trim().toLowerCase()) return name;
+  if (name.trim().toLowerCase() === 'premier league' && (!normalizedCategory || normalizedCategory === 'Football')) {
+    return 'Premier League - England';
+  }
+  if (!normalizedCategory || normalizedCategory === 'Football') return name;
+  return `${name} - ${normalizedCategory}`;
+}
+
+function getCategorySearchAliases(category: string): string {
+  const lower = category.toLowerCase();
+  const aliases: string[] = [];
+  if (lower.includes('england')) aliases.push('ingiltere', 'ingiliz');
+  if (lower.includes('turkey')) aliases.push('turkiye', 'türkiye');
+  if (lower.includes('germany')) aliases.push('almanya');
+  if (lower.includes('spain')) aliases.push('ispanya', 'İspanya'.toLowerCase());
+  if (lower.includes('italy')) aliases.push('italya');
+  if (lower.includes('france')) aliases.push('fransa');
+  if (lower.includes('egypt')) aliases.push('misir', 'mısır');
+  return aliases.join(' ');
+}
+
+function isEnglishPremierLeague(match: ApiMatch): boolean {
+  const tournament = getTournament(match).trim().toLowerCase();
+  const category = getCategory(match).trim().toLowerCase();
+  if (tournament !== 'premier league') return false;
+  return !category || category === 'football' || category.includes('england');
 }
 
 function isWomenLeague(match: ApiMatch): boolean {
@@ -87,7 +155,32 @@ function isWomenLeague(match: ApiMatch): boolean {
 
 function isFinishedStatus(status: string): boolean {
   const s = status.toLowerCase();
-  return s.includes('ended') || s.includes('finished') || s.includes('after');
+  return s.includes('ended') ||
+    s.includes('finished') ||
+    s.includes('after') ||
+    s.includes('full time') ||
+    s.includes('ft') ||
+    s === 'ms';
+}
+
+function isMatchFinished(match: ApiMatch): boolean {
+  if (isFinishedStatus(getStatus(match))) return true;
+
+  const rawStatus = (match as any).status || {};
+  const rawStatusText = String(rawStatus.type || rawStatus.description || '').toLowerCase();
+  const rawCode = Number(match.status_code ?? rawStatus.code);
+  if (rawCode === 100 || isFinishedStatus(rawStatusText)) return true;
+
+  const startDate = getStartDate(match);
+  if (!startDate) return false;
+
+  const homeScore = getHomeScore(match);
+  const awayScore = getAwayScore(match);
+  const hasScore = homeScore !== '-' && awayScore !== '-';
+  if (!hasScore) return false;
+
+  const minutesSinceStart = (Date.now() - startDate.getTime()) / 60000;
+  return minutesSinceStart >= 125;
 }
 
 function isLiveStatus(status: string): boolean {
@@ -97,13 +190,23 @@ function isLiveStatus(status: string): boolean {
     s.includes('extra') || s.includes('penalty') || s.includes('penalt');
 }
 
+function isMatchStarted(match: ApiMatch): boolean {
+  if (isMatchFinished(match)) return true;
+
+  const status = getStatus(match);
+  if (isLiveStatus(status)) return true;
+
+  const rawStatus = (match as any).status || {};
+  const rawStatusText = String(rawStatus.type || rawStatus.description || '').toLowerCase();
+  const rawCode = Number(match.status_code ?? rawStatus.code);
+  if (rawCode > 0 && rawCode !== 60 && rawCode !== 0) return true;
+  if (isLiveStatus(rawStatusText)) return true;
+
+  return false;
+}
+
 function getKickoffLabel(match: ApiMatch): string {
-  let date: Date | null = null;
-  if (match.startTimestamp) {
-    date = new Date(match.startTimestamp * 1000);
-  } else if (match.start_time) {
-    try { date = new Date(match.start_time); } catch { /* ignore */ }
-  }
+  const date = getStartDate(match);
   if (!date || isNaN(date.getTime())) return '-';
 
   const today = new Date();
@@ -115,17 +218,7 @@ function getKickoffLabel(match: ApiMatch): string {
 }
 
 function getMatchDate(match: ApiMatch): string {
-  if (match.startTimestamp) {
-    return new Date(match.startTimestamp * 1000).toLocaleDateString('tr-TR');
-  }
-  if (match.start_time) {
-    try {
-      return new Date(match.start_time).toLocaleDateString('tr-TR');
-    } catch {
-      return '-';
-    }
-  }
-  return '-';
+  return getStartDate(match)?.toLocaleDateString('tr-TR') || '-';
 }
 
 function normalizeMatches(payload: any): ApiMatch[] {
@@ -218,7 +311,7 @@ function getStatusBadge(match: ApiMatch, minute: string | null): { label: string
     };
   }
 
-  if (isFinishedStatus(status)) {
+  if (isMatchFinished(match)) {
     return { label: 'MS', className: 'bg-slate-600/40 text-slate-300 border-slate-500/30' };
   }
 
@@ -234,6 +327,10 @@ function getStatusBadge(match: ApiMatch, minute: string | null): { label: string
 function getLeaguePriority(match: ApiMatch): number {
   const name = getTournament(match).toLowerCase();
   for (let i = 0; i < PRIORITY_LEAGUES.length; i++) {
+    if (PRIORITY_LEAGUES[i] === 'premier league') {
+      if (isEnglishPremierLeague(match)) return i;
+      continue;
+    }
     if (name.includes(PRIORITY_LEAGUES[i])) return i;
   }
   return PRIORITY_LEAGUES.length;
@@ -295,11 +392,15 @@ function getMatchMinute(match: ApiMatch): string | null {
 function groupByTournament(matches: ApiMatch[]): [string, ApiMatch[]][] {
   const map = new Map<string, ApiMatch[]>();
   for (const m of matches) {
-    const key = getTournament(m);
+    const key = getLeagueDisplayName(getTournament(m), getCategory(m));
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(m);
   }
   return Array.from(map.entries());
+}
+
+function getFallbackGroupCategory(label: string): string {
+  return TOP_FIVE_GROUPS.find((group) => group.label === label)?.category || '';
 }
 
 function isPriorityLeague(match: ApiMatch): boolean {
@@ -308,6 +409,9 @@ function isPriorityLeague(match: ApiMatch): boolean {
 
 function matchesChipFilter(match: ApiMatch, chipKey: string): boolean {
   const name = getTournament(match).toLowerCase();
+  if (chipKey === 'top-five') return TOP_FIVE_LEAGUES.some((key) => matchesChipFilter(match, key));
+  if (chipKey === 'europe-cups') return EUROPEAN_CUPS.some((key) => name.includes(key));
+  if (chipKey === 'premier league') return isEnglishPremierLeague(match);
   if (chipKey === 'super lig') return name.includes('super lig') || name.includes('süper lig');
   return name.includes(chipKey);
 }
@@ -326,13 +430,11 @@ function PopularLeagueChips({
   // Count matches per chip
   const chipCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    let popularTotal = 0;
     for (const chip of POPULAR_CHIPS) {
       const count = matches.filter((m) => matchesChipFilter(m, chip.match)).length;
       counts[chip.key] = count;
-      popularTotal += count;
     }
-    counts['popular'] = popularTotal;
+    counts['popular'] = matches.filter((m) => isPriorityLeague(m)).length;
     return counts;
   }, [matches]);
 
@@ -370,7 +472,7 @@ function PopularLeagueChips({
       {/* Individual leagues */}
       {POPULAR_CHIPS.map((chip) => {
         const count = chipCounts[chip.key] || 0;
-        if (count === 0) return null;
+        if (count === 0 && !ALWAYS_SHOW_CHIP_KEYS.has(chip.key)) return null;
 
         return (
           <button
@@ -407,31 +509,48 @@ function LeagueDropdown({
   const [search, setSearch] = useState('');
 
   const availableLeagues = useMemo(() => {
-    const leagueSet = new Set<string>();
+    const leagueMap = new Map<string, { key: string; name: string; category: string; label: string; count: number; priority: number }>();
     for (const m of matches) {
       const t = getTournament(m);
-      if (t !== '-') leagueSet.add(t);
+      if (t === '-') continue;
+      const category = getCategory(m);
+      const key = getLeagueKey(m);
+      const current = leagueMap.get(key);
+      if (current) {
+        current.count += 1;
+      } else {
+        leagueMap.set(key, {
+          key,
+          name: t,
+          category,
+          label: getLeagueDisplayName(t, category),
+          count: 1,
+          priority: getLeaguePriority(m),
+        });
+      }
     }
-    return Array.from(leagueSet).sort((a, b) => {
-      const pa = PRIORITY_LEAGUES.findIndex((l) => a.toLowerCase().includes(l));
-      const pb = PRIORITY_LEAGUES.findIndex((l) => b.toLowerCase().includes(l));
-      const prioA = pa === -1 ? PRIORITY_LEAGUES.length : pa;
-      const prioB = pb === -1 ? PRIORITY_LEAGUES.length : pb;
-      if (prioA !== prioB) return prioA - prioB;
-      return a.localeCompare(b, 'tr');
+    return Array.from(leagueMap.values()).sort((a, b) => {
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      return a.label.localeCompare(b.label, 'tr');
     });
   }, [matches]);
 
   if (availableLeagues.length <= 1) return null;
 
+  const selectedOption = availableLeagues.find((league) => league.key === selectedLeague);
   const searchLower = search.toLowerCase();
-  const priorityLeagues = availableLeagues.filter((l) =>
-    PRIORITY_LEAGUES.some((pl) => l.toLowerCase().includes(pl)) &&
-    (!searchLower || l.toLowerCase().includes(searchLower))
+  const matchesSearch = (league: { name: string; category: string; label: string }) => (
+    !searchLower ||
+    league.name.toLowerCase().includes(searchLower) ||
+    league.category.toLowerCase().includes(searchLower) ||
+    league.label.toLowerCase().includes(searchLower) ||
+    getCategorySearchAliases(league.category).includes(searchLower)
   );
-  const otherLeagues = availableLeagues.filter((l) =>
-    !PRIORITY_LEAGUES.some((pl) => l.toLowerCase().includes(pl)) &&
-    (!searchLower || l.toLowerCase().includes(searchLower))
+  const priorityLeagues = availableLeagues.filter((league) =>
+    league.priority < PRIORITY_LEAGUES.length && matchesSearch(league)
+  );
+  const otherLeagues = availableLeagues.filter((league) =>
+    league.priority >= PRIORITY_LEAGUES.length && matchesSearch(league)
   );
 
   return (
@@ -449,7 +568,9 @@ function LeagueDropdown({
           <span className="truncate">
             {selectedLeague === 'all'
               ? `Tum Ligler (${matches.length})`
-              : `${selectedLeague} (${matches.filter((m) => getTournament(m) === selectedLeague).length})`}
+              : selectedOption
+                ? `${selectedOption.label} (${selectedOption.count})`
+                : 'Secili Lig'}
           </span>
           <svg className={`h-4 w-4 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -493,49 +614,43 @@ function LeagueDropdown({
 
                 {priorityLeagues.length > 0 && (
                   <>
-                    {priorityLeagues.map((league) => {
-                      const count = matches.filter((m) => getTournament(m) === league).length;
-                      return (
-                        <button
-                          key={league}
-                          onClick={() => { onSelect(league); setOpen(false); }}
-                          className={`w-full text-left px-3 py-2 text-sm transition-colors flex items-center justify-between gap-2 ${
-                            selectedLeague === league
-                              ? 'bg-sky-500/15 text-sky-300'
-                              : 'text-slate-300 hover:bg-slate-800'
-                          }`}
-                        >
-                          <span className="flex items-center gap-2 min-w-0">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
-                            <span className="truncate font-medium">{league}</span>
-                          </span>
-                          <span className="text-[11px] text-slate-500 shrink-0">{count}</span>
-                        </button>
-                      );
-                    })}
+                    {priorityLeagues.map((league) => (
+                      <button
+                        key={league.key}
+                        onClick={() => { onSelect(league.key); setOpen(false); }}
+                        className={`w-full text-left px-3 py-2 text-sm transition-colors flex items-center justify-between gap-2 ${
+                          selectedLeague === league.key
+                            ? 'bg-sky-500/15 text-sky-300'
+                            : 'text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
+                          <span className="truncate font-medium">{league.label}</span>
+                        </span>
+                        <span className="text-[11px] text-slate-500 shrink-0">{league.count}</span>
+                      </button>
+                    ))}
                     {otherLeagues.length > 0 && (
                       <div className="border-t border-slate-700/50 my-1" />
                     )}
                   </>
                 )}
 
-                {otherLeagues.map((league) => {
-                  const count = matches.filter((m) => getTournament(m) === league).length;
-                  return (
-                    <button
-                      key={league}
-                      onClick={() => { onSelect(league); setOpen(false); }}
-                      className={`w-full text-left px-3 py-2 text-sm transition-colors flex items-center justify-between gap-2 ${
-                        selectedLeague === league
-                          ? 'bg-sky-500/15 text-sky-300'
-                          : 'text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      <span className="truncate">{league}</span>
-                      <span className="text-[11px] text-slate-500 shrink-0">{count}</span>
-                    </button>
-                  );
-                })}
+                {otherLeagues.map((league) => (
+                  <button
+                    key={league.key}
+                    onClick={() => { onSelect(league.key); setOpen(false); }}
+                    className={`w-full text-left px-3 py-2 text-sm transition-colors flex items-center justify-between gap-2 ${
+                      selectedLeague === league.key
+                        ? 'bg-sky-500/15 text-sky-300'
+                        : 'text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    <span className="truncate">{league.label}</span>
+                    <span className="text-[11px] text-slate-500 shrink-0">{league.count}</span>
+                  </button>
+                ))}
 
                 {priorityLeagues.length === 0 && otherLeagues.length === 0 && (
                   <div className="px-3 py-4 text-sm text-slate-500 text-center">Sonuc bulunamadi</div>
@@ -621,17 +736,17 @@ export default function LivePage() {
     return Array.from(map.values());
   }, [liveMatches, finishedMatches]);
 
-  // Live (not finished, not women)
+  // Program (not finished, not women): includes not-started and live matches.
   const sortedLive = useMemo(() => {
     return allCombined
-      .filter((m) => !isFinishedStatus(getStatus(m)) && !isWomenLeague(m))
+      .filter((m) => !isMatchFinished(m) && !isWomenLeague(m))
       .sort(sortByLeagueThenName);
   }, [allCombined]);
 
   // Finished (not women)
   const sortedFinished = useMemo(() => {
     return allCombined
-      .filter((m) => isFinishedStatus(getStatus(m)) && !isWomenLeague(m))
+      .filter((m) => isMatchFinished(m) && !isWomenLeague(m))
       .sort(sortByLeagueThenName);
   }, [allCombined]);
 
@@ -666,7 +781,7 @@ export default function LivePage() {
   const filteredLive = useMemo(() => {
     let matches = applyQuickFilter(sortedLive);
     if (liveLeagueFilter !== 'all') {
-      matches = matches.filter((m) => getTournament(m) === liveLeagueFilter);
+      matches = matches.filter((m) => getLeagueKey(m) === liveLeagueFilter);
     }
     return matches;
   }, [sortedLive, quickFilter, liveLeagueFilter]);
@@ -680,7 +795,7 @@ export default function LivePage() {
     }
 
     if (finishedLeagueFilter !== 'all') {
-      matches = matches.filter((m) => getTournament(m) === finishedLeagueFilter);
+      matches = matches.filter((m) => getLeagueKey(m) === finishedLeagueFilter);
     }
 
     return matches;
@@ -689,21 +804,30 @@ export default function LivePage() {
   // Filtered women matches
   const filteredWomen = useMemo(() => {
     if (womenLeagueFilter === 'all') return sortedWomen;
-    return sortedWomen.filter((m) => getTournament(m) === womenLeagueFilter);
+    return sortedWomen.filter((m) => getLeagueKey(m) === womenLeagueFilter);
   }, [sortedWomen, womenLeagueFilter]);
 
   const tabs: { id: LiveTab; label: string; count: number; color?: string }[] = [
-    { id: 'devam', label: 'Devam Eden', count: sortedLive.length },
+    { id: 'devam', label: 'Canlı Program', count: sortedLive.length },
     { id: 'biten', label: 'Biten Maclar', count: sortedFinished.length },
     { id: 'kadin', label: 'Kadin Ligleri', count: sortedWomen.length, color: 'pink' },
   ];
 
   const activeMatches = activeTab === 'devam' ? filteredLive : activeTab === 'biten' ? filteredFinished : filteredWomen;
-  const groups = useMemo(() => groupByTournament(activeMatches), [activeMatches]);
+  const groups = useMemo(() => {
+    const grouped = groupByTournament(activeMatches);
+    if (quickFilter !== 'top-five') return grouped;
+
+    const groupedByLabel = new Map(grouped);
+    return TOP_FIVE_GROUPS.map((group) => [
+      group.label,
+      groupedByLabel.get(group.label) || [],
+    ] as [string, ApiMatch[]]);
+  }, [activeMatches, quickFilter]);
 
   const summaryItems = useMemo(
     () => [
-      { label: 'Devam Eden', value: sortedLive.length, accent: 'text-emerald-300' },
+      { label: 'Program', value: sortedLive.length, accent: 'text-emerald-300' },
       { label: 'Biten', value: sortedFinished.length, accent: 'text-slate-300' },
       { label: 'Toplam', value: sortedLive.length + sortedFinished.length, accent: 'text-white' },
     ],
@@ -721,9 +845,9 @@ export default function LivePage() {
               Match Center
             </div>
             <div className="space-y-1.5">
-              <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">Canli mac akisi</h1>
+              <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">Canli program akisi</h1>
               <p className="max-w-xl text-sm leading-5 text-slate-300">
-                Devam eden ve biten karsilasmalari buyuk ligler onde olacak sekilde takip edin.
+                Baslamayan, devam eden ve biten karsilasmalari buyuk ligler onde olacak sekilde takip edin.
               </p>
             </div>
           </div>
@@ -873,7 +997,7 @@ export default function LivePage() {
             {activeTab === 'devam' && (
               quickFilter !== 'all' || liveLeagueFilter !== 'all'
                 ? 'Secilen filtrelere uygun mac bulunamadi.'
-                : 'Su anda devam eden mac yok.'
+                : 'Su anda programda baslamayan veya devam eden mac yok.'
             )}
             {activeTab === 'biten' && (
               selectedDateFilter !== 'all' || finishedLeagueFilter !== 'all' || quickFilter !== 'all'
@@ -889,8 +1013,8 @@ export default function LivePage() {
         ) : (
           <div className="space-y-4">
             {groups.map(([tournament, matches]) => {
-              const isPriority = getLeaguePriority({ tournament: { name: tournament } } as ApiMatch) < PRIORITY_LEAGUES.length;
-              const category = matches[0] ? getCategory(matches[0]) : '';
+              const isPriority = matches[0] ? getLeaguePriority(matches[0]) < PRIORITY_LEAGUES.length : false;
+              const category = matches[0] ? getCategory(matches[0]) : getFallbackGroupCategory(tournament);
               const flag = getCategoryFlag(category);
 
               return (
@@ -903,11 +1027,17 @@ export default function LivePage() {
                   </div>
 
                   {/* Match Rows */}
-                  <div className="divide-y divide-slate-800/80">
-                    {matches.map((match) => (
-                      <MatchRow key={match.id} match={match} showMinute={activeTab !== 'biten'} />
-                    ))}
-                  </div>
+                  {matches.length === 0 ? (
+                    <div className="px-4 py-5 text-sm text-slate-500">
+                      Bu ligde seçili programda maç yok.
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-800/80">
+                      {matches.map((match) => (
+                        <MatchRow key={match.id} match={match} showMinute={activeTab !== 'biten'} />
+                      ))}
+                    </div>
+                  )}
                 </section>
               );
             })}
@@ -927,10 +1057,11 @@ function MatchRow({ match, showMinute }: { match: ApiMatch; showMinute?: boolean
   const awayScore = getAwayScore(match);
   const minute = showMinute ? getMatchMinute(match) : null;
   const badge = getStatusBadge(match, minute);
+  const showScore = isMatchStarted(match);
 
   const homeNum = Number(homeScore);
   const awayNum = Number(awayScore);
-  const hasScore = homeScore !== '-' && awayScore !== '-';
+  const hasScore = showScore && homeScore !== '-' && awayScore !== '-';
   const homeWinning = hasScore && !isNaN(homeNum) && !isNaN(awayNum) && homeNum > awayNum;
   const awayWinning = hasScore && !isNaN(homeNum) && !isNaN(awayNum) && awayNum > homeNum;
 
@@ -966,15 +1097,19 @@ function MatchRow({ match, showMinute }: { match: ApiMatch; showMinute?: boolean
 
       {/* Score */}
       <div className="w-14 sm:w-16 shrink-0 flex items-center justify-center">
-        <div className={`flex items-center gap-1 rounded-md px-2 py-1 text-sm font-bold tabular-nums ${
-          hasScore
-            ? 'bg-slate-700/50 text-white'
-            : 'bg-slate-800/40 text-slate-500'
-        }`}>
-          <span>{homeScore}</span>
-          <span className="text-slate-500">-</span>
-          <span>{awayScore}</span>
-        </div>
+        {showScore ? (
+          <div className={`flex items-center gap-1 rounded-md px-2 py-1 text-sm font-bold tabular-nums ${
+            hasScore
+              ? 'bg-slate-700/50 text-white'
+              : 'bg-slate-800/40 text-slate-500'
+          }`}>
+            <span>{homeScore}</span>
+            <span className="text-slate-500">-</span>
+            <span>{awayScore}</span>
+          </div>
+        ) : (
+          <span className="text-xs font-semibold text-slate-600">vs</span>
+        )}
       </div>
 
       {/* Away Team */}
@@ -986,7 +1121,7 @@ function MatchRow({ match, showMinute }: { match: ApiMatch; showMinute?: boolean
 
       {/* HT Score */}
       <div className="w-14 shrink-0 text-right hidden sm:block">
-        {hasHT && (
+        {showScore && hasHT && (
           <span className="text-[11px] text-slate-500 font-medium tabular-nums">
             IY {htHome}-{htAway}
           </span>

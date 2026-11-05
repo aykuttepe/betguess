@@ -26,6 +26,10 @@ export default function OddsTab({ eventId }: Props) {
   const markets = data.markets || extractMarkets(data);
 
   if (markets.length === 0) {
+    if (Object.keys(data).length === 0) {
+      return <p className="text-gray-400 text-sm">Oran verisi bulunamadi.</p>;
+    }
+
     return (
       <div className="bg-gray-800/60 border border-gray-700 rounded-lg p-4">
         <h4 className="text-white font-semibold text-sm mb-2">Ham Oran Verisi</h4>

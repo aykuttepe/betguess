@@ -68,6 +68,11 @@ export const LEAGUES: LeagueConfig[] = [
   { id: 'la-liga', label: 'La Liga', bbcSlug: 'spanish-la-liga', transfermarktCode: 'ES1' },
   { id: 'serie-a', label: 'Serie A', bbcSlug: 'italian-serie-a', transfermarktCode: 'IT1' },
   { id: 'bundesliga', label: 'Bundesliga', bbcSlug: 'german-bundesliga', transfermarktCode: 'L1' },
+  { id: 'ligue-1', label: 'Ligue 1', bbcSlug: null, transfermarktCode: 'FR1' },
+  { id: 'eredivisie', label: 'Eredivisie', bbcSlug: null, transfermarktCode: 'NL1' },
+  { id: 'liga-portugal', label: 'Liga Portugal', bbcSlug: null, transfermarktCode: 'PO1' },
+  { id: 'championship', label: 'Championship', bbcSlug: null, transfermarktCode: 'GB2' },
+  { id: '1-lig', label: '1. Lig', bbcSlug: null, transfermarktCode: 'TR2' },
 ];
 
 export interface TeamListItem {
@@ -95,7 +100,61 @@ export interface PlayerStats {
   playerSlug?: string;
   tmPlayerId?: string;
   tmPlayerSlug?: string;
+  shirtNumber?: string;
+  foot?: string;
+  height?: string;
+  joinedDate?: string;
+  contractEnd?: string;
   currentInjury?: string | null;
+  status?: UnavailablePlayerStatus | null;
+  statusReason?: string | null;
+}
+
+export type UnavailablePlayerStatus = 'injury' | 'suspension' | 'doubtful' | 'unknown';
+
+export interface TeamBreakdownItem {
+  label: string;
+  count: number;
+}
+
+export interface TeamRankedPlayer {
+  name: string;
+  position?: string;
+  age?: number;
+  marketValue: string;
+  playerId?: string;
+  playerSlug?: string;
+  tmPlayerId?: string;
+  tmPlayerSlug?: string;
+}
+
+export interface TeamRelatedMatch {
+  eventId?: string | number;
+  date?: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeScore?: number | null;
+  awayScore?: number | null;
+  tournament?: string;
+  status?: string;
+}
+
+export interface TeamTransfer {
+  playerName: string;
+  fromTeam?: string;
+  toTeam?: string;
+  date?: string;
+  fee?: string;
+  type?: string;
+}
+
+export interface UnavailablePlayer {
+  playerName: string;
+  status: UnavailablePlayerStatus;
+  reason?: string | null;
+  startDate?: string | null;
+  expectedReturnDate?: string | null;
+  missedMatches?: number | null;
 }
 
 export interface TeamDetail {
@@ -105,12 +164,24 @@ export interface TeamDetail {
   teamId?: string;
   teamSlug?: string;
   teamCountry?: string;
+  country?: string;
   logoUrl?: string;
+  stadium?: string;
+  coach?: string;
+  foundedYear?: string;
   squadSize: number;
   avgAge: number;
+  foreignPlayers: number;
   totalValue: string;
   pointsPerGame: number;
   totalMatches: number;
+  positionBreakdown: TeamBreakdownItem[];
+  ageBreakdown: TeamBreakdownItem[];
+  topPlayersByValue: TeamRankedPlayer[];
+  recentMatches: TeamRelatedMatch[];
+  nextMatches: TeamRelatedMatch[];
+  transfers: TeamTransfer[];
+  unavailablePlayers: UnavailablePlayer[];
   players: PlayerStats[];
   fetchedAt: string;
 }
@@ -149,6 +220,24 @@ export interface PlayerProfile {
   currentInjury: string | null;
   transferHistory: PlayerTransfer[];
   imageUrl?: string;
+}
+
+export interface PlayerSearchResult {
+  playerId: string;
+  playerSlug: string;
+  source: 'tm';
+  name: string;
+  teamName: string;
+  teamId: string;
+  teamSlug: string;
+  league: string;
+  leagueLabel: string;
+  position: string;
+  age: number;
+  nationality: string;
+  marketValue: string;
+  shirtNumber?: string;
+  status?: UnavailablePlayerStatus | null;
 }
 
 

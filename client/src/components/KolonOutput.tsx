@@ -2,11 +2,20 @@ import { useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Kolon, Outcome, SequenceFilters, SportTotoMatch } from '../lib/types';
 import { exportToTxt } from '../lib/kolon-generator';
+import { showButtonFeedback } from '../lib/button-feedback';
+
+export interface KolonRowStatus {
+  tone: 'blue' | 'red';
+  symbol: string;
+  title: string;
+}
 
 interface KolonOutputProps {
   kolonlar: Kolon[];
   matches: SportTotoMatch[];
   weekLabel: string;
+  rowStatuses?: Record<number, KolonRowStatus>;
+  showSequenceFilter?: boolean;
   onImport?: (kolonlar: Kolon[]) => void;
   activeSequenceMatch: number | null;
   activeSequenceOutcomes: Outcome[];
@@ -25,6 +34,8 @@ export default function KolonOutput({
   kolonlar,
   matches,
   weekLabel,
+  rowStatuses,
+  showSequenceFilter = true,
   onImport,
   activeSequenceMatch,
   activeSequenceOutcomes,
@@ -55,6 +66,7 @@ export default function KolonOutput({
   });
 
   const handlePrint = () => {
+    showButtonFeedback('Yazdirma penceresi aciliyor.', 'info');
     window.print();
   };
 
@@ -67,6 +79,59 @@ export default function KolonOutput({
     a.download = 'spor-toto-kolonlar.txt';
     a.click();
     URL.revokeObjectURL(url);
+    showButtonFeedback('TXT dosyasi indiriliyor.', 'success');
+  };
+
+  const buildShareText = () => {
+    const lines = exportToTxt(kolonlar);
+    return [
+      weekLabel,
+      `Kolonlar (${kolonlar.length.toLocaleString('tr-TR')} adet)`,
+      '',
+      lines,
+    ].filter(Boolean).join('\n');
+  };
+
+  const copyShareText = async (text: string) => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.setAttribute('readonly', 'true');
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-9999px';
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+  };
+
+  const handleShare = async () => {
+    const text = buildShareText();
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: 'Spor Toto Kuponu',
+          text,
+        });
+        showButtonFeedback('Paylasim penceresi acildi.', 'success');
+        return;
+      }
+
+      await copyShareText(text);
+      showButtonFeedback('Kupon panoya kopyalandi. Mesaja yapistirabilirsin.', 'success');
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
+
+      await copyShareText(text);
+      showButtonFeedback('Paylasim desteklenmedi; kupon panoya kopyalandi.', 'success');
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -83,13 +148,13 @@ export default function KolonOutput({
         const sanitizedLine = line.replace(/[\s,]/g, '').toUpperCase();
 
         if (sanitizedLine.length !== matches.length) {
-          alert(`Hata: ${i + 1}. satir eksik veya hatali. Beklenen mac sayisi: ${matches.length}, Satirdaki tercih sayisi: ${sanitizedLine.length}`);
+          showButtonFeedback(`${i + 1}. satir hatali. Beklenen mac sayisi: ${matches.length}.`, 'error');
           return;
         }
 
         const invalidCharMatch = sanitizedLine.match(/[^1X2]/);
         if (invalidCharMatch) {
-          alert(`Hata: ${i + 1}. satirda gecersiz karakter ('${invalidCharMatch[0]}'). Sadece 1, X, 2 kullanilmalidir.`);
+          showButtonFeedback(`${i + 1}. satirda gecersiz karakter var. Sadece 1, X, 2 kullanin.`, 'error');
           return;
         }
 
@@ -100,6 +165,7 @@ export default function KolonOutput({
       }
 
       onImport(imported);
+      showButtonFeedback(`${imported.length.toLocaleString('tr-TR')} kolon TXT dosyasindan yuklendi.`, 'success');
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -122,7 +188,8 @@ export default function KolonOutput({
 
   if (kolonlar.length === 0 && !onImport) return null;
 
-  const colCount = matches.length + 1; // +1 for kolon id column
+  const showRowStatuses = Boolean(rowStatuses && Object.keys(rowStatuses).length > 0);
+  const colCount = matches.length + 1 + (showRowStatuses ? 2 : 0); // +1 for kolon id, +2 visual width for status
 
   return (
     <div className="mt-6">
@@ -131,7 +198,7 @@ export default function KolonOutput({
           Kolonlar ({kolonlar.length.toLocaleString('tr-TR')} adet)
         </h2>
         <div className="flex flex-wrap items-center gap-2">
-          {kolonlar.length > 0 && (
+          {showSequenceFilter && kolonlar.length > 0 && (
             <div className="flex flex-col gap-2 rounded-lg border border-gray-700 bg-gray-800/80 px-3 py-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-gray-400">Tekrar filtresi</span>
@@ -174,6 +241,7 @@ export default function KolonOutput({
                   <button
                     type="button"
                     onClick={onActiveSequenceFilterReset}
+                    data-feedback="Tekrar filtresi temizlendi."
                     className="rounded bg-gray-700 px-2 py-1 text-xs text-gray-200 transition-colors hover:bg-gray-600"
                   >
                     Temizle
@@ -202,6 +270,7 @@ export default function KolonOutput({
                         <button
                           type="button"
                           aria-label={`Mac ${entry.matchNumber} filtresini kaldir`}
+                          data-feedback={`Mac ${entry.matchNumber} filtresi kaldirildi.`}
                           onClick={(event) => {
                             event.stopPropagation();
                             onSequenceFilterRemove(entry.matchNumber);
@@ -231,6 +300,7 @@ export default function KolonOutput({
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
+                data-feedback="TXT dosyasi secimi aciliyor."
                 className="px-3 py-1.5 sm:px-4 sm:py-2 bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors text-xs sm:text-sm"
               >
                 TXT Yukle
@@ -239,6 +309,13 @@ export default function KolonOutput({
           )}
           {kolonlar.length > 0 && (
             <>
+              <button
+                onClick={handleShare}
+                data-feedback="Paylasim hazirlaniyor..."
+                className="px-3 py-1.5 sm:px-4 sm:py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 transition-colors text-xs sm:text-sm"
+              >
+                Paylas
+              </button>
               <button
                 onClick={handleTxtExport}
                 className="px-3 py-1.5 sm:px-4 sm:py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-xs sm:text-sm"
@@ -272,6 +349,9 @@ export default function KolonOutput({
                   {m.matchNumber}
                 </div>
               ))}
+              {showRowStatuses && (
+                <div className="px-2 py-1 text-center w-16 shrink-0">Durum</div>
+              )}
             </div>
 
             {/* Virtualized rows */}
@@ -289,6 +369,7 @@ export default function KolonOutput({
               >
                 {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                   const kolon = kolonlar[virtualRow.index];
+                  const rowStatus = rowStatuses?.[kolon.id];
                   return (
                     <div
                       key={virtualRow.index}
@@ -319,6 +400,23 @@ export default function KolonOutput({
                           {pred}
                         </div>
                       ))}
+                      {showRowStatuses && (
+                        <div className="flex w-16 shrink-0 items-center justify-center px-2 py-1">
+                          {rowStatus && (
+                            <span
+                              title={rowStatus.title}
+                              aria-label={rowStatus.title}
+                              className={`flex h-5 w-5 items-center justify-center rounded-full text-xs font-black ${
+                                rowStatus.tone === 'blue'
+                                  ? 'bg-sky-500/20 text-sky-300 ring-1 ring-sky-400/40'
+                                  : 'bg-red-500/20 text-red-300 ring-1 ring-red-400/40'
+                              }`}
+                            >
+                              {rowStatus.symbol}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

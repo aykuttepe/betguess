@@ -19,7 +19,7 @@ const CommentsTab = lazy(() => import('./match-detail/CommentsTab'));
 const IncidentsTab = lazy(() => import('./match-detail/IncidentsTab'));
 const HighlightsTab = lazy(() => import('./match-detail/HighlightsTab'));
 
-type TabKey = 'teams' | 'stats' | 'lineups' | 'absentees' | 'cards' | 'prediction' | 'odds' | 'shotmap' | 'momentum' | 'comments' | 'incidents' | 'highlights' | 'raw';
+type TabKey = 'teams' | 'stats' | 'lineups' | 'absentees' | 'cards' | 'prediction' | 'odds' | 'shotmap' | 'momentum' | 'comments' | 'incidents' | 'highlights';
 
 interface MatchDetailModalProps {
   match: SportTotoMatch;
@@ -39,7 +39,6 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: 'highlights', label: 'Ozetler' },
   { key: 'absentees', label: 'Sakat/Ceza' },
   { key: 'cards', label: 'Kartlar' },
-  { key: 'raw', label: 'Ham Veri' },
 ];
 
 export default function MatchDetailModal({ match, onClose }: MatchDetailModalProps) {
@@ -60,8 +59,8 @@ export default function MatchDetailModal({ match, onClose }: MatchDetailModalPro
       const response = await fetchMatchIntel(match.homeTeam, match.awayTeam, match.matchDate);
       setData(response);
     } catch (err: any) {
-      setError(err?.message || 'Match detay verisi alinamadi');
-      setData(null);
+      setError(null);
+      setData(createFallbackMatchIntel(match));
     } finally {
       setLoading(false);
     }
@@ -206,53 +205,62 @@ export default function MatchDetailModal({ match, onClose }: MatchDetailModalPro
 
               {tab === 'cards' && <CardsTab cards={data.cards} />}
 
-              {tab === 'prediction' && data.eventMeta.eventId && (
-                <Suspense fallback={<TabSpinner />}>
-                  <PredictionTab eventId={data.eventMeta.eventId} />
-                </Suspense>
+              {tab === 'prediction' && (
+                data.eventMeta.eventId ? (
+                  <Suspense fallback={<TabSpinner />}>
+                    <PredictionTab eventId={data.eventMeta.eventId} />
+                  </Suspense>
+                ) : <UnavailableTab label="Tahmin verisi bulunamadi." />
               )}
 
-              {tab === 'odds' && data.eventMeta.eventId && (
-                <Suspense fallback={<TabSpinner />}>
-                  <OddsTab eventId={data.eventMeta.eventId} />
-                </Suspense>
+              {tab === 'odds' && (
+                data.eventMeta.eventId ? (
+                  <Suspense fallback={<TabSpinner />}>
+                    <OddsTab eventId={data.eventMeta.eventId} />
+                  </Suspense>
+                ) : <UnavailableTab label="Oran verisi bulunamadi." />
               )}
 
-              {tab === 'shotmap' && data.eventMeta.eventId && (
-                <Suspense fallback={<TabSpinner />}>
-                  <ShotmapTab eventId={data.eventMeta.eventId} />
-                </Suspense>
+              {tab === 'shotmap' && (
+                data.eventMeta.eventId ? (
+                  <Suspense fallback={<TabSpinner />}>
+                    <ShotmapTab eventId={data.eventMeta.eventId} />
+                  </Suspense>
+                ) : <UnavailableTab label="Sut haritasi verisi yok." />
               )}
 
-              {tab === 'momentum' && data.eventMeta.eventId && (
-                <Suspense fallback={<TabSpinner />}>
-                  <MomentumTab eventId={data.eventMeta.eventId} />
-                </Suspense>
+              {tab === 'momentum' && (
+                data.eventMeta.eventId ? (
+                  <Suspense fallback={<TabSpinner />}>
+                    <MomentumTab eventId={data.eventMeta.eventId} />
+                  </Suspense>
+                ) : <UnavailableTab label="Momentum verisi bulunamadi." />
               )}
 
-              {tab === 'comments' && data.eventMeta.eventId && (
-                <Suspense fallback={<TabSpinner />}>
-                  <CommentsTab eventId={data.eventMeta.eventId} />
-                </Suspense>
+              {tab === 'comments' && (
+                data.eventMeta.eventId ? (
+                  <Suspense fallback={<TabSpinner />}>
+                    <CommentsTab eventId={data.eventMeta.eventId} />
+                  </Suspense>
+                ) : <UnavailableTab label="Yorum verisi bulunamadi." />
               )}
 
-              {tab === 'incidents' && data.eventMeta.eventId && (
-                <Suspense fallback={<TabSpinner />}>
-                  <IncidentsTab eventId={data.eventMeta.eventId} />
-                </Suspense>
+              {tab === 'incidents' && (
+                data.eventMeta.eventId ? (
+                  <Suspense fallback={<TabSpinner />}>
+                    <IncidentsTab eventId={data.eventMeta.eventId} />
+                  </Suspense>
+                ) : <UnavailableTab label="Olay verisi bulunamadi." />
               )}
 
-              {tab === 'highlights' && data.eventMeta.eventId && (
-                <Suspense fallback={<TabSpinner />}>
-                  <HighlightsTab eventId={data.eventMeta.eventId} />
-                </Suspense>
+              {tab === 'highlights' && (
+                data.eventMeta.eventId ? (
+                  <Suspense fallback={<TabSpinner />}>
+                    <HighlightsTab eventId={data.eventMeta.eventId} />
+                  </Suspense>
+                ) : <UnavailableTab label="Highlight bulunamadi." />
               )}
 
-              {tab === 'raw' && (
-                <pre className="bg-gray-950 border border-gray-800 rounded-lg p-3 text-xs text-gray-300 overflow-auto max-h-[60vh]">
-                  {JSON.stringify(data.raw, null, 2)}
-                </pre>
-              )}
             </>
           )}
         </div>
@@ -262,6 +270,36 @@ export default function MatchDetailModal({ match, onClose }: MatchDetailModalPro
 }
 
 // ── Teams Tab ──────────────────────────────────────────────
+
+function createFallbackMatchIntel(match: SportTotoMatch): MatchIntelResponse {
+  return {
+    eventMeta: {
+      eventId: 0,
+      tournament: '-',
+      category: '-',
+      status: 'Not started',
+      startTimestamp: 0,
+      startDateIso: '',
+      homeTeam: match.homeTeam,
+      awayTeam: match.awayTeam,
+      homeScore: null,
+      awayScore: null,
+    },
+    statisticsGroups: [],
+    cards: [],
+    absentees: [],
+    raw: {
+      event: null,
+      statistics: { statistics: [] },
+      incidents: { incidents: [] },
+      lineups: {},
+    },
+  };
+}
+
+function UnavailableTab({ label }: { label: string }) {
+  return <p className="text-gray-400 text-sm">{label}</p>;
+}
 
 function TeamsTab({
   teamStats,
@@ -483,16 +521,23 @@ function InfoCard({ label, value }: { label: string; value: string }) {
 function groupStatsByPeriod(groups: MatchIntelStatisticsGroup[]): Record<string, MatchIntelStatisticsGroup[]> {
   const output: Record<string, MatchIntelStatisticsGroup[]> = {};
   for (const group of groups) {
-    if (!output[group.period]) {
-      output[group.period] = [];
+    const period = group.period || 'ALL';
+    if (!output[period]) {
+      output[period] = [];
     }
-    output[group.period].push(group);
+    output[period].push({
+      ...group,
+      period,
+      items: Array.isArray(group.items) ? group.items : [],
+    });
   }
   return output;
 }
 
 function StatsTab({ groupedStats }: { groupedStats: Record<string, MatchIntelStatisticsGroup[]> }) {
-  const periods = Object.keys(groupedStats);
+  const periods = Object.keys(groupedStats).filter((period) =>
+    groupedStats[period].some((group) => group.items.length > 0)
+  );
   if (periods.length === 0) {
     return <p className="text-gray-400 text-sm">Istatistik verisi bulunamadi.</p>;
   }
@@ -503,7 +548,7 @@ function StatsTab({ groupedStats }: { groupedStats: Record<string, MatchIntelSta
         <div key={period}>
           <h4 className="text-emerald-400 font-semibold mb-2 text-sm">Periyot: {period}</h4>
           <div className="space-y-3">
-            {groupedStats[period].map((group, index) => (
+            {groupedStats[period].filter((group) => group.items.length > 0).map((group, index) => (
               <div key={`${group.groupName}-${index}`} className="bg-gray-800/60 border border-gray-700 rounded-lg overflow-hidden">
                 <div className="px-3 py-2 border-b border-gray-700 text-white text-sm font-medium">
                   {group.groupName}

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useMatches } from '../hooks/useMatches';
 import { useSelections } from '../hooks/useSelections';
 import { generateKolonlar, shuffleKolonlar, applyFilters, applySequenceFilters } from '../lib/kolon-generator';
@@ -12,9 +12,12 @@ import AiPanel from '../components/AiPanel';
 import LatestUsers from '../components/LatestUsers';
 import { fetchMatchAnalysis, fetchFallbackAnalysis, fetchBulkAnalysis } from '../lib/ai-api';
 import { couponsApi } from '../lib/coupons-api';
+import { buildCouponPayload } from '../lib/coupon-payload';
 import { isHttpApiError } from '../lib/http';
 import { useSubscription } from '../hooks/useSubscription';
 import UpgradePrompt from '../components/UpgradePrompt';
+import { showButtonFeedback } from '../lib/button-feedback';
+import { useConfirm } from '../components/ConfirmDialog';
 
 const DEMO_TEAMS = [
     'Galatasaray', 'Fenerbahce', 'Besiktas', 'Trabzonspor',
@@ -26,6 +29,72 @@ const DEMO_TEAMS = [
     'Bandirmaspor', 'Umraniyespor', 'Erzurumspor', 'Altay',
     'Manisaspor', 'Bursaspor',
 ];
+
+const KOLON_PREVIOUS_SELECTION_KEY = 'betguess:kolon:previous-selection';
+
+interface StoredKolonSelection {
+    signature: string;
+    selections: Array<[number, Outcome[]]>;
+}
+
+function createKolonSelectionSignature(matches: SportTotoMatch[]) {
+    return matches
+        .map((match) => `${match.matchNumber}:${match.homeTeam}:${match.awayTeam}`)
+        .join('|');
+}
+
+function hasAnySelection(selections: Map<number, Outcome[]>) {
+    return Array.from(selections.values()).some((outcomes) => outcomes.length > 0);
+}
+
+function savePreviousKolonSelection(signature: string, selections: Map<number, Outcome[]>) {
+    if (!signature || !hasAnySelection(selections)) {
+        return;
+    }
+
+    const stored: StoredKolonSelection = {
+        signature,
+        selections: Array.from(selections.entries()).map(([matchNumber, outcomes]) => [
+            matchNumber,
+            [...outcomes],
+        ]),
+    };
+
+    localStorage.setItem(KOLON_PREVIOUS_SELECTION_KEY, JSON.stringify(stored));
+}
+
+function readPreviousKolonSelection(signature: string): Map<number, Outcome[]> | null {
+    if (!signature) {
+        return null;
+    }
+
+    try {
+        const raw = localStorage.getItem(KOLON_PREVIOUS_SELECTION_KEY);
+        if (!raw) {
+            return null;
+        }
+
+        const parsed = JSON.parse(raw) as StoredKolonSelection;
+        if (parsed.signature !== signature || !Array.isArray(parsed.selections)) {
+            return null;
+        }
+
+        const restored = new Map<number, Outcome[]>();
+        parsed.selections.forEach(([matchNumber, outcomes]) => {
+            if (
+                Number.isInteger(matchNumber) &&
+                Array.isArray(outcomes) &&
+                outcomes.every((outcome): outcome is Outcome => outcome === '1' || outcome === 'X' || outcome === '2')
+            ) {
+                restored.set(matchNumber, [...outcomes]);
+            }
+        });
+
+        return restored.size > 0 ? restored : null;
+    } catch {
+        return null;
+    }
+}
 
 function generateDemoMatches(): SportTotoMatch[] {
     const shuffled = [...DEMO_TEAMS].sort(() => Math.random() - 0.5);
@@ -48,6 +117,7 @@ function generateDemoMatches(): SportTotoMatch[] {
 
 export default function KolonPage() {
     const { program, loading, refreshing, error, refresh } = useMatches();
+    const confirmAction = useConfirm();
     const [demoMatches, setDemoMatches] = useState<SportTotoMatch[] | null>(null);
     const isDemo = demoMatches !== null;
     const effectiveMatches = demoMatches || program?.matches || [];
@@ -56,6 +126,7 @@ export default function KolonPage() {
         selections,
         toggleSelection,
         resetSelections,
+        restoreSelections,
         setPopular,
         selectAll,
         kolonInputs,
@@ -72,6 +143,10 @@ export default function KolonPage() {
     const [aiMatchIdx, setAiMatchIdx] = useState<number | null>(null);
     const [showBulkAi, setShowBulkAi] = useState(false);
     const [selectedMatch, setSelectedMatch] = useState<SportTotoMatch | null>(null);
+    const activeProgramSignature = useMemo(
+        () => createKolonSelectionSignature(effectiveMatches),
+        [effectiveMatches]
+    );
 
     const { tier } = useSubscription();
     // Default limits
@@ -94,10 +169,12 @@ export default function KolonPage() {
             const shuffled = shuffleKolonlar(result);
             setAllKolonlar(shuffled);
             applyCurrentFilters(shuffled, filters, sequenceFilters);
+            showButtonFeedback(`${shuffled.length.toLocaleString('tr-TR')} kolon olusturuldu.`, 'success');
         } catch (err: any) {
             setGenError(err.message);
             setAllKolonlar([]);
             setKolonlar([]);
+            showButtonFeedback(err.message || 'Kolonlar olusturulamadi.', 'error');
         }
     }, [kolonInputs, filters, sequenceFilters, applyCurrentFilters]);
 
@@ -178,15 +255,33 @@ export default function KolonPage() {
         setActiveSequenceMatch((current) => (current === matchNumber ? null : current));
     }, [allKolonlar, filters, applyCurrentFilters]);
 
-    const handleReset = useCallback(() => {
-        resetSelections();
+    const clearGeneratedState = useCallback(() => {
         setAllKolonlar([]);
         setKolonlar([]);
         setFilters({ ...DEFAULT_FILTERS });
         setSequenceFilters({ ...DEFAULT_SEQUENCE_FILTERS });
         setActiveSequenceMatch(null);
         setGenError(null);
-    }, [resetSelections]);
+    }, []);
+
+    const handleReset = useCallback(() => {
+        savePreviousKolonSelection(activeProgramSignature, selections);
+        resetSelections();
+        clearGeneratedState();
+    }, [activeProgramSignature, selections, resetSelections, clearGeneratedState]);
+
+    const handleRemember = useCallback(() => {
+        const previous = readPreviousKolonSelection(activeProgramSignature);
+        if (!previous) {
+            setGenError('Hatırlanacak önceki seçim bulunamadı.');
+            showButtonFeedback('Hatirlanacak onceki secim bulunamadi.', 'warning');
+            return;
+        }
+
+        restoreSelections(previous);
+        clearGeneratedState();
+        showButtonFeedback('Onceki secimler yuklendi.', 'success');
+    }, [activeProgramSignature, restoreSelections, clearGeneratedState]);
 
     const handleImport = useCallback((imported: Kolon[]) => {
         setAllKolonlar(imported);
@@ -258,6 +353,7 @@ export default function KolonPage() {
                     <button
                         onClick={refresh}
                         disabled={loading || refreshing}
+                        data-feedback="Mac programi yenileniyor..."
                         className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors disabled:text-gray-500"
                     >
                         {refreshing ? 'Guncelleniyor...' : 'Yenile'}
@@ -270,6 +366,7 @@ export default function KolonPage() {
                     <span className="text-sm text-amber-200">Deneme modu - 15 rastgele mac</span>
                     <button
                         onClick={handleDemoReset}
+                        data-feedback="Deneme maclari sifirlaniyor."
                         className="px-3 py-1 bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors text-xs"
                     >
                         Denemeyi Sifirla
@@ -281,10 +378,11 @@ export default function KolonPage() {
                 <div className="text-center py-20">
                     <div className="inline-block w-8 h-8 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin" />
                     <p className="mt-4 text-gray-400">Maclar yukleniyor...</p>
-                    <button
-                        onClick={handleDemo}
-                        className="mt-4 px-4 py-2 bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors text-sm"
-                    >
+                        <button
+                            onClick={handleDemo}
+                            data-feedback="Deneme maclari olusturuluyor."
+                            className="mt-4 px-4 py-2 bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors text-sm"
+                        >
                         Deneme Maclari Olustur
                     </button>
                 </div>
@@ -297,12 +395,14 @@ export default function KolonPage() {
                         <div className="mt-3 flex gap-2 justify-center">
                             <button
                                 onClick={refresh}
+                                data-feedback="Mac programi tekrar yukleniyor..."
                                 className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors text-sm"
                             >
                                 Tekrar Dene
                             </button>
                             <button
                                 onClick={handleDemo}
+                                data-feedback="Deneme moduna geciliyor."
                                 className="px-4 py-2 bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors text-sm"
                             >
                                 Deneme
@@ -398,32 +498,45 @@ export default function KolonPage() {
                     <div className="mt-4 flex flex-wrap gap-1.5 sm:gap-2 no-print">
                         <button
                             onClick={handleDemo}
+                            data-feedback="Deneme maclari olusturuluyor."
                             className="px-3 py-1.5 sm:px-4 sm:py-2 bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors text-xs sm:text-sm"
                         >
                             Deneme
                         </button>
                         <button
                             onClick={handlePopular}
+                            data-feedback="Populer secimler uygulandi."
+                            data-feedback-tone="success"
                             className="px-3 py-1.5 sm:px-4 sm:py-2 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors text-xs sm:text-sm"
                         >
                             Populer Secim
                         </button>
                         <button
                             onClick={selectAll}
+                            data-feedback="Tum maclar kapali secildi."
+                            data-feedback-tone="success"
                             className="px-3 py-1.5 sm:px-4 sm:py-2 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors text-xs sm:text-sm"
                         >
                             Tumunu Sec
                         </button>
                         <button
                             onClick={handleReset}
+                            data-feedback="Secimler temizlendi."
                             className="px-3 py-1.5 sm:px-4 sm:py-2 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors text-xs sm:text-sm"
                         >
-                            Sifirla
+                            Temizle
+                        </button>
+                        <button
+                            onClick={handleRemember}
+                            className="px-3 py-1.5 sm:px-4 sm:py-2 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors text-xs sm:text-sm"
+                        >
+                            Hatırla
                         </button>
                         <div className="flex-1 min-w-0" />
                         <button
                             onClick={handleGenerate}
                             disabled={!allSelected || isOverKolonLimit}
+                            data-feedback="Kolonlar olusturuluyor..."
                             className={`px-4 py-1.5 sm:px-6 sm:py-2 rounded font-medium text-xs sm:text-sm transition-colors ${!allSelected || isOverKolonLimit
                                 ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                                 : 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-500/20'
@@ -470,7 +583,14 @@ export default function KolonPage() {
                             <button
                                 onClick={async () => {
                                     if (kolonlar.length > 5000) {
-                                        if (!confirm(`${kolonlar.length} adet kuponu kaydetmek biraz zaman alabilir ve veritabanına yük bindirebilir. Devam etmek istiyor musunuz?`)) {
+                                        const confirmed = await confirmAction({
+                                            title: 'Cok sayida kupon kaydedilsin mi?',
+                                            message: `${kolonlar.length.toLocaleString('tr-TR')} adet kupon kaydedilecek. Bu islem biraz zaman alabilir ve veritabanina yuk bindirebilir.`,
+                                            confirmLabel: 'Kaydetmeye Devam Et',
+                                            tone: 'warning',
+                                        });
+
+                                        if (!confirmed) {
                                             return;
                                         }
                                     }
@@ -489,16 +609,21 @@ export default function KolonPage() {
                                             };
                                         });
 
-                                        await couponsApi.saveCoupon('kayitli', program?.weekLabel || 'Kolon', systemKuponsForm);
-                                        alert('Kolonlar başarıyla Kuponlarım (Kayıtlı) sekmesine eklendi!');
+                                        await couponsApi.saveCoupon(
+                                            'kayitli',
+                                            program?.weekLabel || 'Kolon',
+                                            buildCouponPayload(systemKuponsForm, effectiveMatches)
+                                        );
+                                        showButtonFeedback('Kolonlar Kuponlarim sekmesine eklendi.', 'success');
                                     } catch (err) {
                                         if (isHttpApiError(err) && err.status === 401) {
                                             return;
                                         }
 
-                                        alert(err instanceof Error ? err.message : 'Kupon kaydedilirken bir hata oluştu.');
+                                        showButtonFeedback(err instanceof Error ? err.message : 'Kupon kaydedilirken bir hata olustu.', 'error');
                                     }
                                 }}
+                                data-feedback="Kuponlar kaydediliyor..."
                                 className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow-[0_0_15px_rgba(59,130,246,0.4)] transition-all hover:scale-105 flex items-center gap-2"
                             >
                                 💾 Kuponları Kaydet

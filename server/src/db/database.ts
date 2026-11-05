@@ -46,6 +46,48 @@ export function initDatabase(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_coupons_user_id ON coupons(user_id);
     CREATE INDEX IF NOT EXISTS idx_coupons_week ON coupons(week);
+
+    CREATE TABLE IF NOT EXISTS coupon_shares (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      coupon_id INTEGER NOT NULL,
+      sender_id INTEGER NOT NULL,
+      recipient_id INTEGER NOT NULL,
+      message TEXT DEFAULT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(coupon_id, sender_id, recipient_id),
+      FOREIGN KEY(coupon_id) REFERENCES coupons(id) ON DELETE CASCADE,
+      FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(recipient_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_coupon_shares_recipient ON coupon_shares(recipient_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_coupon_shares_coupon ON coupon_shares(coupon_id);
+
+    CREATE TABLE IF NOT EXISTS friend_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      requester_id INTEGER NOT NULL,
+      recipient_id INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT DEFAULT (datetime('now')),
+      responded_at TEXT DEFAULT NULL,
+      UNIQUE(requester_id, recipient_id),
+      FOREIGN KEY(requester_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(recipient_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_friend_requests_recipient ON friend_requests(recipient_id, status, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_friend_requests_requester ON friend_requests(requester_id, status, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS friendships (
+      user_id INTEGER NOT NULL,
+      friend_id INTEGER NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY(user_id, friend_id),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(friend_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_friendships_friend ON friendships(friend_id);
   `);
 
   // Migration: Add phone_number and phone_verified if they don't exist
@@ -189,24 +231,72 @@ export function initDatabase(): Database.Database {
       user_id INTEGER NOT NULL,
       type TEXT NOT NULL,
       actor_id INTEGER NOT NULL,
-      topic_id INTEGER NOT NULL,
+      topic_id INTEGER,
       comment_id INTEGER,
+      friend_request_id INTEGER,
+      coupon_id INTEGER,
+      reaction_type TEXT DEFAULT NULL,
       is_read INTEGER NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(actor_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(topic_id) REFERENCES forum_topics(id) ON DELETE CASCADE,
-      FOREIGN KEY(comment_id) REFERENCES forum_comments(id) ON DELETE SET NULL
+      FOREIGN KEY(comment_id) REFERENCES forum_comments(id) ON DELETE SET NULL,
+      FOREIGN KEY(friend_request_id) REFERENCES friend_requests(id) ON DELETE SET NULL,
+      FOREIGN KEY(coupon_id) REFERENCES coupons(id) ON DELETE CASCADE
     );
 
     CREATE INDEX IF NOT EXISTS idx_forum_notif_user ON forum_notifications(user_id, is_read, created_at DESC);
   `);
 
-  // Migration: Add reaction_type column to forum_notifications if not exists
-  const notifInfo = db.prepare("PRAGMA table_info(forum_notifications)").all() as Array<{ name: string }>;
-  if (!notifInfo.some(col => col.name === 'reaction_type')) {
-    db.exec(`ALTER TABLE forum_notifications ADD COLUMN reaction_type TEXT DEFAULT NULL`);
-    console.log('[Dev] Migrated: Added reaction_type to forum_notifications');
+  // Migration: make notifications generic enough for forum, friend, and coupon events.
+  const notifInfo = db.prepare("PRAGMA table_info(forum_notifications)").all() as Array<{ name: string; notnull: number }>;
+  const topicColumn = notifInfo.find(col => col.name === 'topic_id');
+  const hasReactionType = notifInfo.some(col => col.name === 'reaction_type');
+  const needsGenericNotificationMigration =
+    topicColumn?.notnull === 1 ||
+    !notifInfo.some(col => col.name === 'friend_request_id') ||
+    !notifInfo.some(col => col.name === 'coupon_id') ||
+    !hasReactionType;
+
+  if (needsGenericNotificationMigration) {
+    const reactionSelect = hasReactionType ? 'reaction_type' : 'NULL AS reaction_type';
+    db.exec(`
+      PRAGMA foreign_keys = OFF;
+
+      CREATE TABLE IF NOT EXISTS forum_notifications_next (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        actor_id INTEGER NOT NULL,
+        topic_id INTEGER,
+        comment_id INTEGER,
+        friend_request_id INTEGER,
+        coupon_id INTEGER,
+        reaction_type TEXT DEFAULT NULL,
+        is_read INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(actor_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(topic_id) REFERENCES forum_topics(id) ON DELETE CASCADE,
+        FOREIGN KEY(comment_id) REFERENCES forum_comments(id) ON DELETE SET NULL,
+        FOREIGN KEY(friend_request_id) REFERENCES friend_requests(id) ON DELETE SET NULL,
+        FOREIGN KEY(coupon_id) REFERENCES coupons(id) ON DELETE CASCADE
+      );
+
+      INSERT INTO forum_notifications_next (
+        id, user_id, type, actor_id, topic_id, comment_id, reaction_type, is_read, created_at
+      )
+      SELECT id, user_id, type, actor_id, topic_id, comment_id, ${reactionSelect}, is_read, created_at
+      FROM forum_notifications;
+
+      DROP TABLE forum_notifications;
+      ALTER TABLE forum_notifications_next RENAME TO forum_notifications;
+      CREATE INDEX IF NOT EXISTS idx_forum_notif_user ON forum_notifications(user_id, is_read, created_at DESC);
+
+      PRAGMA foreign_keys = ON;
+    `);
+    console.log('[Dev] Migrated: Generalized forum_notifications table');
   }
 
   // ─── App settings table (key-value runtime config) ─────────────────────────

@@ -38,7 +38,7 @@ function matchPath(pathname: string, path: string): boolean {
 export const MAIN_NAV_ITEMS: MainNavItem[] = [
   { id: 'tahminler', label: 'Tahminler', to: '/' },
   { id: 'canli', label: 'Canli', to: '/live' },
-  { id: 'istatistikler', label: 'Istatistikler', to: '/search' },
+  { id: 'istatistikler', label: 'Istatistikler', to: '/standings' },
   { id: 'forum', label: 'Forum', to: '/forum' },
 ];
 

@@ -326,7 +326,63 @@ export interface PlayerStats {
   marketValue: string;
   playerId?: string;
   playerSlug?: string;
+  tmPlayerId?: string;
+  tmPlayerSlug?: string;
+  shirtNumber?: string;
+  foot?: string;
+  height?: string;
+  joinedDate?: string;
+  contractEnd?: string;
   currentInjury?: string | null;
+  status?: UnavailablePlayerStatus | null;
+  statusReason?: string | null;
+}
+
+export type UnavailablePlayerStatus = 'injury' | 'suspension' | 'doubtful' | 'unknown';
+
+export interface TeamBreakdownItem {
+  label: string;
+  count: number;
+}
+
+export interface TeamRankedPlayer {
+  name: string;
+  position?: string;
+  age?: number;
+  marketValue: string;
+  playerId?: string;
+  playerSlug?: string;
+  tmPlayerId?: string;
+  tmPlayerSlug?: string;
+}
+
+export interface TeamRelatedMatch {
+  eventId?: string | number;
+  date?: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeScore?: number | null;
+  awayScore?: number | null;
+  tournament?: string;
+  status?: string;
+}
+
+export interface TeamTransfer {
+  playerName: string;
+  fromTeam?: string;
+  toTeam?: string;
+  date?: string;
+  fee?: string;
+  type?: string;
+}
+
+export interface UnavailablePlayer {
+  playerName: string;
+  status: UnavailablePlayerStatus;
+  reason?: string | null;
+  startDate?: string | null;
+  expectedReturnDate?: string | null;
+  missedMatches?: number | null;
 }
 
 export interface TeamDetail {
@@ -336,12 +392,24 @@ export interface TeamDetail {
   teamId?: string;
   teamSlug?: string;
   teamCountry?: string;
+  country?: string;
   logoUrl?: string;
+  stadium?: string;
+  coach?: string;
+  foundedYear?: string;
   squadSize: number;
   avgAge: number;
+  foreignPlayers: number;
   totalValue: string;
   pointsPerGame: number;
   totalMatches: number;
+  positionBreakdown: TeamBreakdownItem[];
+  ageBreakdown: TeamBreakdownItem[];
+  topPlayersByValue: TeamRankedPlayer[];
+  recentMatches: TeamRelatedMatch[];
+  nextMatches: TeamRelatedMatch[];
+  transfers: TeamTransfer[];
+  unavailablePlayers: UnavailablePlayer[];
   players: PlayerStats[];
   fetchedAt: string;
 }
@@ -382,14 +450,35 @@ export interface PlayerProfile {
   imageUrl?: string;
 }
 
+export interface PlayerSearchResult {
+  playerId: string;
+  playerSlug: string;
+  source: 'tm';
+  name: string;
+  teamName: string;
+  teamId: string;
+  teamSlug: string;
+  league: string;
+  leagueLabel: string;
+  position: string;
+  age: number;
+  nationality: string;
+  marketValue: string;
+  shirtNumber?: string;
+  status?: UnavailablePlayerStatus | null;
+}
+
 export interface TournamentSummary {
   id: number;
   name: string;
   slug?: string;
+  type?: 'league' | 'cup';
 }
 
 export interface TournamentMapResponse {
   tournaments?: Record<string, TournamentSummary>;
+  leagues?: TournamentSummary[];
+  cups?: TournamentSummary[];
 }
 
 export interface TournamentSeason {

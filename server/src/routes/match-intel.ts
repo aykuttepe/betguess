@@ -3,15 +3,61 @@ import {
   getMatchIntel,
   MatchIntelNotFoundError,
   MatchIntelUpstreamError,
-} from '../services/match-intel-service';
+} from '../services/sofascore-service';
 import { AuthRequest } from '../auth/types';
-import { requireSubscription } from '../auth/auth-middleware';
 
 const router = Router();
 
-router.get('/match-intel',
-  requireSubscription('pro') as any,
-  async (req: AuthRequest, res: Response) => {
+function parseMatchDateToIso(matchDate: string): string {
+  const [day, month, year] = matchDate.split('.');
+  if (!day || !month || !year) return '';
+  return `${year.padStart(4, '0')}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+}
+
+function createFallbackMatchIntel(homeTeam: string, awayTeam: string, matchDate: string) {
+  const dateIso = parseMatchDateToIso(matchDate);
+  const startTimestamp = dateIso
+    ? Math.floor(new Date(`${dateIso}T00:00:00Z`).getTime() / 1000)
+    : 0;
+
+  const event = {
+    id: 0,
+    homeTeam: { name: homeTeam },
+    awayTeam: { name: awayTeam },
+    tournament: {
+      name: '',
+      category: { name: '' },
+    },
+    status: { description: 'Not started', type: 'notstarted' },
+    startTimestamp,
+  };
+
+  return {
+    eventMeta: {
+      eventId: 0,
+      tournament: '',
+      category: '',
+      status: 'Not started',
+      startTimestamp,
+      startDateIso: startTimestamp ? new Date(startTimestamp * 1000).toISOString() : '',
+      homeTeam,
+      awayTeam,
+      homeScore: null,
+      awayScore: null,
+    },
+    statisticsGroups: [],
+    cards: [],
+    absentees: [],
+    raw: {
+      event: { event },
+      statistics: { statistics: [] },
+      incidents: { incidents: [] },
+      lineups: {},
+    },
+  };
+}
+
+router.get('/match-intel', async (req: AuthRequest, res: Response) => {
   const homeTeam = String(req.query.homeTeam || '').trim();
   const awayTeam = String(req.query.awayTeam || '').trim();
   const matchDate = String(req.query.matchDate || '').trim();
@@ -33,6 +79,11 @@ router.get('/match-intel',
     }
 
     if (error instanceof MatchIntelUpstreamError) {
+      if (/forbidden/i.test(error.message || '')) {
+        res.json(createFallbackMatchIntel(homeTeam, awayTeam, matchDate));
+        return;
+      }
+
       res.status(502).json({ error: error.message || 'SofaScore upstream hatasi.' });
       return;
     }

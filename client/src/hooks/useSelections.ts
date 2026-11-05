@@ -31,6 +31,14 @@ export function useSelections(matchCount: number) {
     setSelections(new Map());
   }, []);
 
+  const restoreSelections = useCallback((restored: Selections) => {
+    const next = new Map<number, Outcome[]>();
+    restored.forEach((outcomes, matchNumber) => {
+      next.set(matchNumber, [...outcomes]);
+    });
+    setSelections(next);
+  }, []);
+
   const setPopular = useCallback((popularPicks: Map<number, Outcome>) => {
     setSelections(prev => {
       const next = new Map(prev);
@@ -77,6 +85,7 @@ export function useSelections(matchCount: number) {
     selections,
     toggleSelection,
     resetSelections,
+    restoreSelections,
     setPopular,
     selectAll,
     kolonInputs,

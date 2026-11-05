@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useMatches } from '../hooks/useMatches';
 import {
   SYSTEM_FORMULAS,
@@ -10,15 +10,18 @@ import {
   ComprehensiveMatchSelection,
   generateComprehensiveFormulaCoupons,
   generateSystemCoupons,
-  getOutcomeType,
   SystemKupon,
   SystemMatchDistribution,
   SystemOutcome,
 } from '../lib/system-generator';
-import { Outcome } from '../lib/types';
+import { DEFAULT_SEQUENCE_FILTERS, Kolon, Outcome, SequenceFilters, SportTotoMatch } from '../lib/types';
 import SystemKuponOutput from '../components/SystemKuponOutput';
+import KolonOutput from '../components/KolonOutput';
 import { couponsApi } from '../lib/coupons-api';
+import { buildCouponPayload } from '../lib/coupon-payload';
 import { isHttpApiError } from '../lib/http';
+import { applySequenceFilters } from '../lib/kolon-generator';
+import { showButtonFeedback } from '../lib/button-feedback';
 
 const OUTCOME_OPTIONS: Outcome[] = ['1', 'X', '2'];
 const OUTCOME_LABELS: Record<Outcome, string> = {
@@ -26,6 +29,108 @@ const OUTCOME_LABELS: Record<Outcome, string> = {
   X: 'X',
   '2': '2',
 };
+const SYSTEM_OUTCOMES: SystemOutcome[] = ['1', 'X', '2', '1X', '12', 'X2', '1X2'];
+const CLASSIC_DISTRIBUTION_STORAGE_KEY = 'betguess:classic-system-distribution';
+const CLASSIC_DISTRIBUTION_PREVIOUS_STORAGE_KEY = 'betguess:classic-system-distribution:previous';
+
+type ClassicDists = Record<number, Record<SystemOutcome, number>>;
+type SystemPageTab = 'formula' | 'distribution';
+type GenerationMode = 'formula' | 'distribution';
+
+interface StoredClassicDistribution {
+  signature: string;
+  couponCount: number | null;
+  dists: Record<string, Partial<Record<SystemOutcome, number>>>;
+}
+
+function createEmptyCounts(): Record<SystemOutcome, number> {
+  return {
+    '1': 0,
+    X: 0,
+    '2': 0,
+    '1X': 0,
+    '12': 0,
+    X2: 0,
+    '1X2': 0,
+  };
+}
+
+function createProgramSignature(matches: SportTotoMatch[]): string {
+  return matches
+    .map((match) => `${match.matchNumber}:${match.homeTeam}:${match.awayTeam}`)
+    .join('|');
+}
+
+function createInitialClassicDists(matches: SportTotoMatch[]): ClassicDists {
+  const initial: ClassicDists = {};
+  matches.forEach((match) => {
+    initial[match.matchNumber] = createEmptyCounts();
+  });
+  return initial;
+}
+
+function normalizeClassicDists(
+  matches: SportTotoMatch[],
+  storedDists?: Record<string, Partial<Record<SystemOutcome, number>>>,
+): ClassicDists {
+  const normalized = createInitialClassicDists(matches);
+
+  matches.forEach((match) => {
+    const storedCounts = storedDists?.[String(match.matchNumber)];
+    if (!storedCounts) return;
+
+    SYSTEM_OUTCOMES.forEach((outcome) => {
+      normalized[match.matchNumber][outcome] = Math.max(0, Math.floor(Number(storedCounts[outcome]) || 0));
+    });
+  });
+
+  return normalized;
+}
+
+function readStoredClassicDistribution(signature: string): StoredClassicDistribution | null {
+  return readClassicDistributionFromStorage(CLASSIC_DISTRIBUTION_STORAGE_KEY, signature);
+}
+
+function readPreviousClassicDistribution(signature: string): StoredClassicDistribution | null {
+  return readClassicDistributionFromStorage(CLASSIC_DISTRIBUTION_PREVIOUS_STORAGE_KEY, signature);
+}
+
+function readClassicDistributionFromStorage(key: string, signature: string): StoredClassicDistribution | null {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const rawValue = window.localStorage.getItem(key);
+    if (!rawValue) return null;
+
+    const parsed = JSON.parse(rawValue) as StoredClassicDistribution;
+    if (parsed.signature !== signature) return null;
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredClassicDistribution(value: StoredClassicDistribution): void {
+  writeClassicDistributionToStorage(CLASSIC_DISTRIBUTION_STORAGE_KEY, value);
+}
+
+function writePreviousClassicDistribution(value: StoredClassicDistribution): void {
+  writeClassicDistributionToStorage(CLASSIC_DISTRIBUTION_PREVIOUS_STORAGE_KEY, value);
+}
+
+function writeClassicDistributionToStorage(key: string, value: StoredClassicDistribution): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+function hasClassicDistributionValue(couponCount: number | null, dists: ClassicDists): boolean {
+  if (couponCount !== null) return true;
+
+  return Object.values(dists).some((counts) => (
+    Object.values(counts).some((count) => count > 0)
+  ));
+}
 
 function sortOutcomes(outcomes: Outcome[]): Outcome[] {
   return [...outcomes].sort(
@@ -127,6 +232,42 @@ function CouponCountPicker({
   );
 }
 
+function CouponCountInput({
+  couponCount,
+  onChange,
+}: {
+  couponCount: number | null;
+  onChange: (count: number | null) => void;
+}) {
+  const handleChange = (value: string) => {
+    if (value.trim() === '') {
+      onChange(null);
+      return;
+    }
+
+    const numericValue = Math.max(1, Math.floor(Number(value) || 0));
+    onChange(numericValue);
+  };
+
+  return (
+    <div className="max-w-sm">
+      <input
+        type="number"
+        min="1"
+        step="1"
+        inputMode="numeric"
+        value={couponCount ?? ''}
+        onChange={(event) => handleChange(event.target.value)}
+        placeholder="Orn. 600"
+        className="w-full rounded-lg border border-gray-600 bg-gray-900 px-4 py-3 text-lg font-bold text-gray-100 outline-none transition-colors placeholder:text-gray-600 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/30"
+      />
+      <p className="mt-2 text-xs text-gray-500">
+        Her mac satirindaki dagilim toplami bu sayiya esit olmalidir.
+      </p>
+    </div>
+  );
+}
+
 function getSelectionType(outcomes: Outcome[]): 'bos' | 'banko' | 'cifte' | 'kapali' {
   if (outcomes.length === 0) return 'bos';
   if (outcomes.length === 1) return 'banko';
@@ -190,39 +331,95 @@ function formatCapacity(capacity: bigint): string {
   return capacity.toString();
 }
 
+function systemKuponsToKolonlar(kupons: SystemKupon[], matches: SportTotoMatch[]): Kolon[] {
+  return kupons.map((kupon, index) => ({
+    id: index + 1,
+    predictions: matches.map((match) => {
+      const selection = kupon.selections[match.matchNumber]?.[0];
+      return (selection === '1' || selection === 'X' || selection === '2' ? selection : '1') as Outcome;
+    }),
+  }));
+}
+
+function kolonlarToSystemKupons(kolonlar: Kolon[], matches: SportTotoMatch[]): SystemKupon[] {
+  return kolonlar.map((kolon) => {
+    const selections: Record<number, string[]> = {};
+
+    matches.forEach((match, index) => {
+      selections[match.matchNumber] = [kolon.predictions[index]];
+    });
+
+    return {
+      id: String(kolon.id),
+      price: 10,
+      selections,
+    };
+  });
+}
+
 export default function SystemCouponPage() {
   const { program, loading, error } = useMatches();
   const effectiveMatches = program?.matches || [];
 
-  const [manualFormulaId, setManualFormulaId] = useState<string | null>(null);
   const [manualCouponCount, setManualCouponCount] = useState<number | null>(null);
   const [wideFormulaId, setWideFormulaId] = useState<string | null>(null);
   const [wideCouponCount, setWideCouponCount] = useState<number | null>(null);
+  const [restoredClassicSignature, setRestoredClassicSignature] = useState<string | null>(null);
+  const [activeSystemTab, setActiveSystemTab] = useState<SystemPageTab>('formula');
+  const [lastGenerationMode, setLastGenerationMode] = useState<GenerationMode | null>(null);
 
   const [dists, setDists] = useState<Record<number, Record<SystemOutcome, number>>>({});
   const [wideSelections, setWideSelections] = useState<Record<number, Outcome[]>>({});
 
   const [kupons, setKupons] = useState<SystemKupon[]>([]);
+  const [distributionAllKolonlar, setDistributionAllKolonlar] = useState<Kolon[]>([]);
+  const [distributionKolonlar, setDistributionKolonlar] = useState<Kolon[]>([]);
+  const [distributionActiveSequenceMatch, setDistributionActiveSequenceMatch] = useState<number | null>(null);
+  const [distributionSequenceFilters, setDistributionSequenceFilters] = useState<SequenceFilters>({
+    ...DEFAULT_SEQUENCE_FILTERS,
+  });
   const [genError, setGenError] = useState<string | null>(null);
   const [chanceError, setChanceError] = useState<string | null>(null);
 
+  const classicProgramSignature = useMemo(
+    () => (effectiveMatches.length === 15 ? createProgramSignature(effectiveMatches) : ''),
+    [effectiveMatches],
+  );
+
   useEffect(() => {
-    if (effectiveMatches.length === 15 && Object.keys(dists).length === 0) {
-      const initial: Record<number, Record<SystemOutcome, number>> = {};
-      effectiveMatches.forEach((match) => {
-        initial[match.matchNumber] = {
-          '1': 0,
-          X: 0,
-          '2': 0,
-          '1X': 0,
-          '12': 0,
-          X2: 0,
-          '1X2': 0,
-        };
-      });
-      setDists(initial);
+    if (!classicProgramSignature || restoredClassicSignature === classicProgramSignature) {
+      return;
     }
-  }, [effectiveMatches, dists]);
+
+    const stored = readStoredClassicDistribution(classicProgramSignature);
+
+    if (stored) {
+      const storedCouponCount = Math.floor(Number(stored.couponCount) || 0);
+      setManualCouponCount(storedCouponCount > 0 ? storedCouponCount : null);
+      setDists(normalizeClassicDists(effectiveMatches, stored.dists));
+    } else {
+      setManualCouponCount(null);
+      setDists(createInitialClassicDists(effectiveMatches));
+    }
+
+    setRestoredClassicSignature(classicProgramSignature);
+  }, [classicProgramSignature, effectiveMatches, restoredClassicSignature]);
+
+  useEffect(() => {
+    if (
+      !classicProgramSignature ||
+      restoredClassicSignature !== classicProgramSignature ||
+      Object.keys(dists).length === 0
+    ) {
+      return;
+    }
+
+    writeStoredClassicDistribution({
+      signature: classicProgramSignature,
+      couponCount: manualCouponCount,
+      dists,
+    });
+  }, [classicProgramSignature, restoredClassicSignature, manualCouponCount, dists]);
 
   useEffect(() => {
     if (effectiveMatches.length === 15 && Object.keys(wideSelections).length === 0) {
@@ -234,33 +431,10 @@ export default function SystemCouponPage() {
     }
   }, [effectiveMatches, wideSelections]);
 
-  const manualFormula = useMemo(
-    () => SYSTEM_FORMULAS.find((formula) => formula.id === manualFormulaId) ?? null,
-    [manualFormulaId],
-  );
-
   const wideFormula = useMemo(
     () => SYSTEM_FORMULAS.find((formula) => formula.id === wideFormulaId) ?? null,
     [wideFormulaId],
   );
-
-  const targetKapali = manualFormula && manualCouponCount ? manualFormula.kapaliCount * manualCouponCount : 0;
-  const targetCifte = manualFormula && manualCouponCount ? manualFormula.cifteCount * manualCouponCount : 0;
-
-  const currentSums = useMemo(() => {
-    let kapali = 0;
-    let cifte = 0;
-
-    Object.values(dists).forEach((matchCounts) => {
-      Object.entries(matchCounts).forEach(([outcome, count]) => {
-        const type = getOutcomeType(outcome as SystemOutcome);
-        if (type === 'kapali') kapali += count;
-        if (type === 'cifte') cifte += count;
-      });
-    });
-
-    return { kapali, cifte };
-  }, [dists]);
 
   const wideSelectionSummary = useMemo(() => {
     let kapaliCount = 0;
@@ -394,6 +568,61 @@ export default function SystemCouponPage() {
     };
   }, [wideCompatibilityMessage, wideFormulaCapacity]);
 
+  const distributionActiveSequenceOutcomes = distributionActiveSequenceMatch === null
+    ? []
+    : distributionSequenceFilters[distributionActiveSequenceMatch] || [];
+
+  const applyDistributionSequenceFilters = useCallback((all: Kolon[], sequence: SequenceFilters) => {
+    setDistributionKolonlar(applySequenceFilters(all, sequence));
+  }, []);
+
+  const handleDistributionSequenceOutcomesChange = useCallback((outcomes: Outcome[]) => {
+    if (distributionActiveSequenceMatch === null) {
+      return;
+    }
+
+    setDistributionSequenceFilters((prev) => {
+      const next = { ...prev };
+
+      if (outcomes.length === 0) {
+        delete next[distributionActiveSequenceMatch];
+      } else {
+        next[distributionActiveSequenceMatch] = outcomes;
+      }
+
+      applyDistributionSequenceFilters(distributionAllKolonlar, next);
+      return next;
+    });
+  }, [applyDistributionSequenceFilters, distributionActiveSequenceMatch, distributionAllKolonlar]);
+
+  const handleDistributionActiveSequenceFilterReset = useCallback(() => {
+    if (distributionActiveSequenceMatch === null) {
+      return;
+    }
+
+    setDistributionSequenceFilters((prev) => {
+      const next = { ...prev };
+      delete next[distributionActiveSequenceMatch];
+      applyDistributionSequenceFilters(distributionAllKolonlar, next);
+      return next;
+    });
+  }, [applyDistributionSequenceFilters, distributionActiveSequenceMatch, distributionAllKolonlar]);
+
+  const handleDistributionSequenceFilterRemove = useCallback((matchNumber: number) => {
+    setDistributionSequenceFilters((prev) => {
+      if (!(matchNumber in prev)) {
+        return prev;
+      }
+
+      const next = { ...prev };
+      delete next[matchNumber];
+      applyDistributionSequenceFilters(distributionAllKolonlar, next);
+      return next;
+    });
+
+    setDistributionActiveSequenceMatch((current) => (current === matchNumber ? null : current));
+  }, [applyDistributionSequenceFilters, distributionAllKolonlar]);
+
   const toggleWideSelection = (matchNumber: number, outcome: Outcome) => {
     setWideSelections((prev) => {
       const current = prev[matchNumber] || [];
@@ -433,6 +662,14 @@ export default function SystemCouponPage() {
     });
 
     setWideSelections(next);
+    showButtonFeedback(
+      preset === 'popular'
+        ? 'Populer genis kupon secimleri yuklendi.'
+        : preset === 'all'
+          ? 'Tum maclar kapali secildi.'
+          : 'Genis kupon secimleri sifirlandi.',
+      preset === 'reset' ? 'info' : 'success'
+    );
   };
 
   const handleCountChange = (matchNumber: number, outcome: SystemOutcome, value: string) => {
@@ -456,12 +693,61 @@ export default function SystemCouponPage() {
     }));
   };
 
+  const handleClassicReset = () => {
+    setGenError(null);
+    setChanceError(null);
+    setKupons([]);
+    setDistributionAllKolonlar([]);
+    setDistributionKolonlar([]);
+    setLastGenerationMode(null);
+
+    if (!classicProgramSignature || effectiveMatches.length !== 15) {
+      return;
+    }
+
+    if (hasClassicDistributionValue(manualCouponCount, dists)) {
+      writePreviousClassicDistribution({
+        signature: classicProgramSignature,
+        couponCount: manualCouponCount,
+        dists,
+      });
+    }
+
+    setManualCouponCount(null);
+    setDists(createInitialClassicDists(effectiveMatches));
+    showButtonFeedback('Dagitim secimleri sifirlandi.', 'info');
+  };
+
+  const handleClassicRemember = () => {
+    setGenError(null);
+    setChanceError(null);
+
+    if (!classicProgramSignature || effectiveMatches.length !== 15) {
+      return;
+    }
+
+    const stored = readPreviousClassicDistribution(classicProgramSignature)
+      ?? readStoredClassicDistribution(classicProgramSignature);
+
+    if (!stored) {
+      setGenError('Hatirlanacak eski dagitim bulunamadi.');
+      showButtonFeedback('Hatirlanacak eski dagitim bulunamadi.', 'warning');
+      return;
+    }
+
+    const storedCouponCount = Math.floor(Number(stored.couponCount) || 0);
+    setManualCouponCount(storedCouponCount > 0 ? storedCouponCount : null);
+    setDists(normalizeClassicDists(effectiveMatches, stored.dists));
+    showButtonFeedback('Onceki dagitim secimleri yuklendi.', 'success');
+  };
+
   const handleGenerate = () => {
     setGenError(null);
     setChanceError(null);
 
-    if (!manualFormula || !manualCouponCount) {
-      setGenError('Lutfen once formül ve kupon sayisi secin.');
+    if (!manualCouponCount) {
+      setGenError('Lutfen once kupon sayisini girin.');
+      showButtonFeedback('Once kupon sayisini girin.', 'warning');
       return;
     }
 
@@ -473,16 +759,16 @@ export default function SystemCouponPage() {
     }));
 
     try {
-      const result = generateSystemCoupons(
-        distArray,
-        manualFormula.kapaliCount,
-        manualFormula.cifteCount,
-        manualCouponCount,
-        calculateFormulaPrice(manualFormula.kapaliCount, manualFormula.cifteCount),
-      );
+      const result = generateSystemCoupons(distArray, manualCouponCount, { expandToKolons: true });
+      const generatedKolonlar = systemKuponsToKolonlar(result, effectiveMatches);
       setKupons(result);
+      setDistributionAllKolonlar(generatedKolonlar);
+      applyDistributionSequenceFilters(generatedKolonlar, distributionSequenceFilters);
+      setLastGenerationMode('distribution');
+      showButtonFeedback(`${generatedKolonlar.length.toLocaleString('tr-TR')} kupon uretildi.`, 'success');
     } catch (err: any) {
       setGenError(err.message);
+      showButtonFeedback(err.message || 'Kuponlar uretilemedi.', 'error');
     }
   };
 
@@ -492,6 +778,7 @@ export default function SystemCouponPage() {
 
     if (!wideFormula || !wideCouponCount) {
       setChanceError('Lutfen genis kupondan uretilecek formulu ve kupon sayisini secin.');
+      showButtonFeedback('Formul ve kupon sayisini secin.', 'warning');
       return;
     }
 
@@ -509,21 +796,35 @@ export default function SystemCouponPage() {
         calculateFormulaPrice(wideFormula.kapaliCount, wideFormula.cifteCount),
       );
       setKupons(result);
+      setDistributionAllKolonlar([]);
+      setDistributionKolonlar([]);
+      setLastGenerationMode('formula');
+      showButtonFeedback(`${result.length.toLocaleString('tr-TR')} sans kuponu uretildi.`, 'success');
     } catch (err: any) {
       setChanceError(err.message);
+      showButtonFeedback(err.message || 'Sans kuponu uretilemedi.', 'error');
     }
   };
 
   const handleSaveCoupons = async () => {
     try {
-      await couponsApi.saveCoupon('kayitli', program?.weekLabel || '', kupons);
-      alert('Kupon basariyla Kayitli sekmesine eklendi!');
+      const couponsToSave =
+        lastGenerationMode === 'distribution'
+          ? kolonlarToSystemKupons(distributionKolonlar, effectiveMatches)
+          : kupons;
+
+      await couponsApi.saveCoupon(
+        'kayitli',
+        program?.weekLabel || '',
+        buildCouponPayload(couponsToSave, effectiveMatches)
+      );
+      showButtonFeedback('Kupon Kayitli sekmesine eklendi.', 'success');
     } catch (error) {
       if (isHttpApiError(error) && error.status === 401) {
         return;
       }
 
-      alert(error instanceof Error ? error.message : 'Hata olustu.');
+      showButtonFeedback(error instanceof Error ? error.message : 'Hata olustu.', 'error');
     }
   };
 
@@ -586,6 +887,26 @@ export default function SystemCouponPage() {
         </div>
       </div>
 
+      <div className="bg-gray-800/60 border border-gray-700 rounded-lg p-2 flex gap-2 overflow-x-auto">
+        {[
+          { id: 'formula' as const, label: 'Kapsamlı Formül' },
+          { id: 'distribution' as const, label: 'Dağıtım Motoru' },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveSystemTab(tab.id)}
+            className={`px-4 py-2 rounded-md text-sm font-semibold whitespace-nowrap transition-colors ${
+              activeSystemTab === tab.id
+                ? 'bg-emerald-600 text-white shadow-[0_0_12px_rgba(16,185,129,0.28)]'
+                : 'bg-gray-900/40 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeSystemTab === 'formula' && (
       <div className="bg-gray-800/60 border border-gray-700 rounded-xl p-5 space-y-5">
         <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
           <div>
@@ -737,8 +1058,8 @@ export default function SystemCouponPage() {
               </div>
             )}
 
-            <button
-              onClick={handleChanceGenerate}
+          <button
+            onClick={handleChanceGenerate}
               disabled={
                 !wideFormula ||
                 !wideCouponCount ||
@@ -746,6 +1067,7 @@ export default function SystemCouponPage() {
                 Boolean(wideCompatibilityMessage) ||
                 (wideFormulaCapacity !== null && wideFormulaCapacity < BigInt(wideCouponCount))
               }
+              data-feedback="Sans kuponu hazirlaniyor..."
               className="w-full px-8 py-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.35)] transition-all"
             >
               Sans Gele
@@ -758,46 +1080,45 @@ export default function SystemCouponPage() {
           </div>
         </div>
       </div>
+      )}
 
+      {activeSystemTab === 'distribution' && (
       <div className="bg-gray-800/60 border border-gray-700 rounded-lg p-5">
-        <h2 className="text-lg font-bold mb-4 text-emerald-400 border-b border-gray-700 pb-2">
-          Klasik Dagitim Motoru
-        </h2>
+        <div className="mb-4 flex flex-col gap-3 border-b border-gray-700 pb-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-lg font-bold text-emerald-400">
+            Dağıtım Motoru
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={handleClassicRemember}
+              className="px-3 py-2 rounded-lg bg-gray-700 text-gray-200 text-sm font-semibold hover:bg-gray-600 transition-colors"
+            >
+              Hatırla
+            </button>
+            <button
+              onClick={handleClassicReset}
+              className="px-3 py-2 rounded-lg bg-red-900/35 text-red-200 text-sm font-semibold border border-red-700/50 hover:bg-red-900/55 transition-colors"
+            >
+              Sıfırla
+            </button>
+          </div>
+        </div>
         <p className="text-sm text-gray-400 mb-4">
-          Eski akista her mac ve secim tipi icin adet vererek tam dagitim kontrollu kupon uretebilirsiniz.
+          Formul secmeden, her mac ve secim tipi icin adet vererek tam dagitim kontrollu kupon uretebilirsiniz.
+          Seciminiz bu program icin tarayicida hatirlanir.
         </p>
 
         <div className="space-y-6">
           <div>
             <h3 className="text-lg font-bold mb-4 text-emerald-400 border-b border-gray-700 pb-2">
-              1. Adim: Formul Secimi
+              1. Adim: Uretilecek Kupon Sayisi
             </h3>
-            <FormulaPicker selectedFormulaId={manualFormulaId} onSelect={setManualFormulaId} />
+            <CouponCountInput couponCount={manualCouponCount} onChange={setManualCouponCount} />
           </div>
 
           <div>
             <h3 className="text-lg font-bold mb-4 text-emerald-400 border-b border-gray-700 pb-2">
-              2. Adim: Uretilecek Formul Kuponu Sayisi
-            </h3>
-            <CouponCountPicker couponCount={manualCouponCount} onSelect={setManualCouponCount} />
-          </div>
-
-          {manualFormula && manualCouponCount && (
-            <div
-              className={`p-4 rounded-lg border font-medium text-center shadow-lg transition-colors ${
-                currentSums.kapali === targetKapali && currentSums.cifte === targetCifte
-                  ? 'bg-emerald-900/30 border-emerald-500 text-emerald-300'
-                  : 'bg-red-900/40 border-red-500 text-red-200'
-              }`}
-            >
-              Hedef: toplam cifte sayisi <strong>{targetCifte}</strong> (girilen: {currentSums.cifte}), toplam kapali
-              sayisi <strong>{targetKapali}</strong> (girilen: {currentSums.kapali})
-            </div>
-          )}
-
-          <div>
-            <h3 className="text-lg font-bold mb-4 text-emerald-400 border-b border-gray-700 pb-2">
-              3. Adim: Her mactaki dagilim adetlerini secin
+              2. Adim: Her mactaki dagilim adetlerini secin
             </h3>
             <div className="overflow-auto max-h-[65vh] custom-scrollbar rounded-lg border border-gray-700/50">
               <div className="min-w-[950px]">
@@ -849,7 +1170,7 @@ export default function SystemCouponPage() {
                         </div>
 
                         <div className="grid grid-cols-7 gap-1 items-center relative">
-                          {(['1', 'X', '2', '1X', '12', 'X2', '1X2'] as SystemOutcome[]).map((outcome) => (
+                          {SYSTEM_OUTCOMES.map((outcome) => (
                             <div key={outcome} className="flex flex-col items-center w-full">
                               <div className="flex bg-gray-800 rounded overflow-hidden border border-gray-600 w-full h-9 hover:border-emerald-500/50 transition-colors focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500">
                                 <button
@@ -916,6 +1237,7 @@ export default function SystemCouponPage() {
           <div className="flex justify-end">
             <button
               onClick={handleGenerate}
+              data-feedback="Dagitim kuponlari uretiliyor..."
               className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all hover:scale-105"
             >
               Kuponlari Uret
@@ -923,11 +1245,13 @@ export default function SystemCouponPage() {
           </div>
         </div>
       </div>
+      )}
 
       <div className="flex justify-end pt-4 border-t border-gray-700 gap-3">
-        {kupons.length > 0 && (
+        {(lastGenerationMode === 'distribution' ? distributionKolonlar.length > 0 : kupons.length > 0) && (
           <button
             onClick={handleSaveCoupons}
+            data-feedback="Kupon kaydediliyor..."
             className="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow-[0_0_15px_rgba(59,130,246,0.4)] transition-all hover:scale-105"
           >
             Kuponlari Kaydet
@@ -935,7 +1259,22 @@ export default function SystemCouponPage() {
         )}
       </div>
 
-      <SystemKuponOutput kuponlar={kupons} matches={effectiveMatches} weekLabel={program?.weekLabel || ''} />
+      {lastGenerationMode === 'distribution' ? (
+        <KolonOutput
+          kolonlar={distributionKolonlar}
+          matches={effectiveMatches}
+          weekLabel={program?.weekLabel || ''}
+          activeSequenceMatch={distributionActiveSequenceMatch}
+          activeSequenceOutcomes={distributionActiveSequenceOutcomes}
+          sequenceFilters={distributionSequenceFilters}
+          onActiveSequenceMatchChange={setDistributionActiveSequenceMatch}
+          onSequenceOutcomesChange={handleDistributionSequenceOutcomesChange}
+          onActiveSequenceFilterReset={handleDistributionActiveSequenceFilterReset}
+          onSequenceFilterRemove={handleDistributionSequenceFilterRemove}
+        />
+      ) : (
+        <SystemKuponOutput kuponlar={kupons} matches={effectiveMatches} weekLabel={program?.weekLabel || ''} />
+      )}
     </div>
   );
 }

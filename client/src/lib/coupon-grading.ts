@@ -1,6 +1,7 @@
 import { CouponRow } from './coupons-api';
+import { CouponSnapshot, parseCouponPayload } from './coupon-payload';
 import { SystemKupon } from './system-generator';
-import { HistoricalProgram } from './types';
+import { HistoricalProgram, SportTotoMatch } from './types';
 
 export type CouponGrade = 12 | 13 | 14 | 15;
 
@@ -17,12 +18,7 @@ export function parseProgramNoFromWeekLabel(weekLabel: string): number | null {
 }
 
 export function parseCouponData(data: string): SystemKupon[] {
-  try {
-    const parsed = JSON.parse(data) as SystemKupon[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  return parseCouponPayload(data).kupons;
 }
 
 export function getBestHitCount(
@@ -118,6 +114,8 @@ export function getKolonGrades(
 export interface CouponInsight {
   coupon: CouponRow;
   parsedData: SystemKupon[];
+  savedMatches: SportTotoMatch[];
+  snapshot: CouponSnapshot | null;
   programNo: number | null;
   bestHitCount: number | null;
   grade: CouponGrade | null;
@@ -129,7 +127,8 @@ export function buildCouponInsight(
   coupon: CouponRow,
   programsByNo: Map<number, HistoricalProgram>,
 ): CouponInsight {
-  const parsedData = parseCouponData(coupon.data);
+  const parsedPayload = parseCouponPayload(coupon.data);
+  const parsedData = parsedPayload.kupons;
   const programNo = parseProgramNoFromWeekLabel(coupon.week);
   const program = programNo === null ? null : programsByNo.get(programNo) ?? null;
   const bestHitCount = getBestHitCount(parsedData, program);
@@ -138,6 +137,8 @@ export function buildCouponInsight(
   return {
     coupon,
     parsedData,
+    savedMatches: parsedPayload.matches,
+    snapshot: parsedPayload.snapshot,
     programNo,
     bestHitCount,
     grade: getCouponGrade(bestHitCount),

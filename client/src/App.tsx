@@ -17,11 +17,14 @@ import TournamentsPage from './pages/TournamentsPage';
 import HistoryPage from './pages/HistoryPage';
 import AdminDashboard from './pages/AdminDashboard';
 import ProfilePage from './pages/ProfilePage';
+import FriendsPage from './pages/FriendsPage';
 import ForumPage from './pages/ForumPage';
 import TopicDetailPage from './pages/TopicDetailPage';
 import SonuclarPage from './pages/SonuclarPage';
 import PhoneVerificationModal from './components/PhoneVerificationModal';
 import GlobalUpgradeToast from './components/GlobalUpgradeToast';
+import ButtonFeedbackToast from './components/ButtonFeedbackToast';
+import { ConfirmProvider } from './components/ConfirmDialog';
 import PricingPage from './pages/PricingPage';
 
 function PhoneVerificationGuard() {
@@ -52,44 +55,48 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <PhoneVerificationGuard />
-        <GlobalUpgradeToast />
-        <Routes>
-          {/* Public routes */}
-          <Route path="/login" element={<AuthPage />} />
-          <Route element={<AppLayout />}>
-            <Route element={<StandardLayout />}>
-              <Route path="/forum" element={<ForumPage />} />
-              <Route path="/forum/:id" element={<TopicDetailPage />} />
-              <Route path="/pricing" element={<PricingPage />} />
-            </Route>
-          </Route>
-
-          {/* Protected routes under AppLayout */}
-          <Route element={<ProtectedRoute />}>
+        <ConfirmProvider>
+          <PhoneVerificationGuard />
+          <GlobalUpgradeToast />
+          <ButtonFeedbackToast />
+          <Routes>
+            {/* Public routes */}
+            <Route path="/login" element={<AuthPage />} />
             <Route element={<AppLayout />}>
-              <Route index element={<KolonPage />} />
               <Route element={<StandardLayout />}>
-                <Route path="/sistem" element={<SystemCouponPage />} />
-                <Route path="/kuponlarim" element={<MyCouponsPage />} />
-                <Route path="/sonuclar" element={<SonuclarPage />} />
-                <Route path="/live" element={<LivePage />} />
-                <Route path="/search" element={<SearchPage />} />
-                <Route path="/standings" element={<StandingsPage />} />
-                <Route path="/values" element={<TeamValuesPage />} />
-                <Route path="/team-detail" element={<TeamDetailPage />} />
-                <Route path="/player" element={<PlayerPage />} />
-                <Route path="/tournaments" element={<TournamentsPage />} />
-                <Route path="/history" element={<HistoryPage />} />
-                <Route path="/profile" element={<ProfilePage />} />
-                <Route path="/admin" element={<AdminDashboard />} />
+                <Route path="/forum" element={<ForumPage />} />
+                <Route path="/forum/:id" element={<TopicDetailPage />} />
+                <Route path="/pricing" element={<PricingPage />} />
               </Route>
             </Route>
-          </Route>
 
-          {/* Catch-all */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+            {/* Protected routes under AppLayout */}
+            <Route element={<ProtectedRoute />}>
+              <Route element={<AppLayout />}>
+                <Route index element={<KolonPage />} />
+                <Route element={<StandardLayout />}>
+                  <Route path="/sistem" element={<SystemCouponPage />} />
+                  <Route path="/kuponlarim" element={<MyCouponsPage />} />
+                  <Route path="/sonuclar" element={<SonuclarPage />} />
+                  <Route path="/live" element={<LivePage />} />
+                  <Route path="/search" element={<SearchPage />} />
+                  <Route path="/standings" element={<StandingsPage />} />
+                  <Route path="/values" element={<TeamValuesPage />} />
+                  <Route path="/team-detail" element={<TeamDetailPage />} />
+                  <Route path="/player" element={<PlayerPage />} />
+                  <Route path="/tournaments" element={<TournamentsPage />} />
+                  <Route path="/history" element={<HistoryPage />} />
+                  <Route path="/profile" element={<ProfilePage />} />
+                  <Route path="/arkadaslar" element={<FriendsPage />} />
+                  <Route path="/admin" element={<AdminDashboard />} />
+                </Route>
+              </Route>
+            </Route>
+
+            {/* Catch-all */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </ConfirmProvider>
       </AuthProvider>
     </BrowserRouter>
   );

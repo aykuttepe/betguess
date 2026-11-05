@@ -46,7 +46,7 @@ export default function SystemKuponOutput({
                     {idx + 1}
                   </div>
                   <div className="text-left">
-                    <div className="text-gray-200 font-medium">Formül Kuponu</div>
+                    <div className="text-gray-200 font-medium">Sistem Kuponu</div>
                     <div className="text-xs text-gray-500">ID: #{kupon.id.toUpperCase()}</div>
                   </div>
                 </div>

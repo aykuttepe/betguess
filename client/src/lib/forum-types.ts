@@ -103,15 +103,25 @@ export type TopicSort = 'active' | 'popular' | 'newest' | 'oldest' | 'most_viewe
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 
-export type NotificationType = 'comment_on_topic' | 'reply_to_comment' | 'like_on_comment' | 'reaction_on_topic';
+export type NotificationType =
+  | 'comment_on_topic'
+  | 'reply_to_comment'
+  | 'like_on_comment'
+  | 'reaction_on_topic'
+  | 'friend_request'
+  | 'friend_accepted'
+  | 'friend_declined'
+  | 'coupon_shared';
 
 export interface ForumNotification {
   id: number;
   type: NotificationType;
   actorUsername: string;
-  topicId: number;
-  topicTitle: string;
+  topicId: number | null;
+  topicTitle: string | null;
   commentId: number | null;
+  friendRequestId: number | null;
+  couponId: number | null;
   reactionType: string | null;
   isRead: boolean;
   createdAt: string;

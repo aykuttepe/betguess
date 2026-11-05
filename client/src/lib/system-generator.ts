@@ -18,23 +18,18 @@ export function getOutcomeType(outcome: SystemOutcome): OutcomeType {
 
 export function validateSystemDistribution(
   distributions: SystemMatchDistribution[],
-  formulaKapali: number,
-  formulaCifte: number,
   couponCount: number
 ): { valid: boolean; error?: string } {
   if (distributions.length !== 15) return { valid: false, error: 'Maç sayısı 15 olmalıdır.' };
-
-  let totalKapali = 0;
-  let totalCifte = 0;
+  if (!Number.isFinite(couponCount) || couponCount <= 0) {
+    return { valid: false, error: 'Kupon sayisi sifirdan buyuk olmalidir.' };
+  }
 
   for (const match of distributions) {
     let matchTotal = 0;
-    for (const [outcome, count] of Object.entries(match.counts)) {
-      if (count < 0) return { valid: false, error: 'Negatif dağılım kullanılamaz.' };
+    for (const count of Object.values(match.counts)) {
+      if (!Number.isFinite(count) || count < 0) return { valid: false, error: 'Negatif dağılım kullanılamaz.' };
       matchTotal += count;
-      const t = getOutcomeType(outcome as SystemOutcome);
-      if (t === 'kapali') totalKapali += count;
-      if (t === 'cifte') totalCifte += count;
     }
 
     if (matchTotal !== couponCount) {
@@ -43,16 +38,6 @@ export function validateSystemDistribution(
         error: `Maç ${match.matchNumber} toplamı ${matchTotal}. Kupon sayısına (${couponCount}) eşit olmalıdır.`,
       };
     }
-  }
-
-  const expectedKapali = formulaKapali * couponCount;
-  const expectedCifte = formulaCifte * couponCount;
-
-  if (totalKapali !== expectedKapali) {
-    return { valid: false, error: `Toplam Kapalı sayısı ${totalKapali}. Ancak hedeflenen ${expectedKapali} olmalıdır.` };
-  }
-  if (totalCifte !== expectedCifte) {
-    return { valid: false, error: `Toplam Çifte sayısı ${totalCifte}. Ancak hedeflenen ${expectedCifte} olmalıdır.` };
   }
 
   return { valid: true };
@@ -69,9 +54,56 @@ export interface SystemKupon {
   selections: Record<number, string[]>;
 }
 
+export interface GenerateSystemCouponsOptions {
+  expandToKolons?: boolean;
+}
+
 export interface ComprehensiveMatchSelection {
   matchNumber: number;
   outcomes: string[];
+}
+
+function outcomeToSelections(outcome: SystemOutcome): string[] {
+  const selections: string[] = [];
+  if (outcome.includes('1')) selections.push('1');
+  if (outcome.includes('X')) selections.push('X');
+  if (outcome.includes('2')) selections.push('2');
+  return selections;
+}
+
+function calculateDistributedCouponPrice(row: Cell[]): number {
+  return row.reduce((price, cell) => price * outcomeToSelections(cell.outcome).length, 10);
+}
+
+function calculateExpandedKolonCount(row: Cell[]): number {
+  return row.reduce((total, cell) => total * outcomeToSelections(cell.outcome).length, 1);
+}
+
+function appendExpandedKolons(
+  output: SystemKupon[],
+  row: Cell[],
+  distributions: SystemMatchDistribution[],
+): void {
+  const selections: Record<number, string[]> = {};
+
+  const buildKolon = (matchIndex: number) => {
+    if (matchIndex === row.length) {
+      output.push({
+        id: String(output.length + 1),
+        price: 10,
+        selections: { ...selections },
+      });
+      return;
+    }
+
+    const matchNumber = distributions[matchIndex].matchNumber;
+    for (const outcome of outcomeToSelections(row[matchIndex].outcome)) {
+      selections[matchNumber] = [outcome];
+      buildKolon(matchIndex + 1);
+    }
+  };
+
+  buildKolon(0);
 }
 
 const SINGLE_OUTCOMES = ['1', 'X', '2'] as const;
@@ -299,16 +331,14 @@ export function generateComprehensiveFormulaCoupons(
   return Array.from(generated.values());
 }
 
-// Generate the N coupons fulfilling the distribution using a matrix column-shuffle + row-balancing algorithm
+// Generate the N coupons by shuffling each match distribution independently.
 export function generateSystemCoupons(
   distributions: SystemMatchDistribution[],
-  formulaKapali: number,
-  formulaCifte: number,
   couponCount: number,
-  formulaPrice: number
+  options: GenerateSystemCouponsOptions = {},
 ): SystemKupon[] {
   // Validate first just in case
-  const val = validateSystemDistribution(distributions, formulaKapali, formulaCifte, couponCount);
+  const val = validateSystemDistribution(distributions, couponCount);
   if (!val.valid) throw new Error(val.error);
 
   // 1. Build initial columns
@@ -342,105 +372,33 @@ export function generateSystemCoupons(
     }
   }
 
-  // 2. Balance Kapali
-  let iterations = 0;
-  while (true) {
-    iterations++;
-    if (iterations > 10000) throw new Error("Makine dengelemeyi sağlayamadı, sonsuz döngü koruması aktif.");
+  if (options.expandToKolons) {
+    const maxKolonCount = 500000;
+    const totalExpandedCount = matrix.reduce((total, row) => total + calculateExpandedKolonCount(row), 0);
 
-    let rowA = -1; // Has too many kapali
-    let rowB = -1; // Has too few kapali
-
-    for (let c = 0; c < couponCount; c++) {
-      let count = matrix[c].filter((cell) => cell.type === 'kapali').length;
-      if (count > formulaKapali) rowA = c;
-      else if (count < formulaKapali) rowB = c;
+    if (totalExpandedCount > maxKolonCount) {
+      throw new Error(
+        `Cok fazla kolon olusuyor (${totalExpandedCount.toLocaleString('tr-TR')}). Lutfen dagilimi daraltin.`,
+      );
     }
 
-    if (rowA === -1 && rowB === -1) break; // Balanced Kapali!
-
-    // Find a column where rowA has kapali and rowB does NOT have kapali (so swapping improves/moves one kapali from A to B)
-    let swapped = false;
-    for (let m = 0; m < distributions.length; m++) {
-      if (matrix[rowA][m].type === 'kapali' && matrix[rowB][m].type !== 'kapali') {
-        const temp = matrix[rowA][m];
-        matrix[rowA][m] = matrix[rowB][m];
-        matrix[rowB][m] = temp;
-        swapped = true;
-        break;
-      }
-    }
-    
-    if (!swapped) {
-      // Very rare path: unable to make direct swap. Can do a multi-way swap, but randomness usually avoids traps.
-      // Easiest "jolt" is randomly swap two items in a column that don't change row counts just to shuffle the board state.
-      const m = Math.floor(Math.random() * distributions.length);
-      const randR = Math.floor(Math.random() * couponCount);
-      const temp = matrix[rowA][m];
-      matrix[rowA][m] = matrix[randR][m];
-      matrix[randR][m] = temp;
-    }
+    const expandedKolons: SystemKupon[] = [];
+    matrix.forEach((row) => appendExpandedKolons(expandedKolons, row, distributions));
+    return expandedKolons;
   }
 
-  // 3. Balance Cifte (making sure not to touch kapali)
-  iterations = 0;
-  while (true) {
-    iterations++;
-    if (iterations > 10000) throw new Error("Makine çifte dengelemesini sağlayamadı, koruma aktif.");
-
-    let rowA = -1; // Has too many cifte
-    let rowB = -1; // Has too few cifte
-
-    for (let c = 0; c < couponCount; c++) {
-      let count = matrix[c].filter((cell) => cell.type === 'cifte').length;
-      if (count > formulaCifte) rowA = c;
-      else if (count < formulaCifte) rowB = c;
-    }
-
-    if (rowA === -1 && rowB === -1) break; // Balanced Cifte!
-
-    let swapped = false;
-    for (let m = 0; m < distributions.length; m++) {
-      // Row A gives a 'cifte', Row B gives a 'tek'
-      if (matrix[rowA][m].type === 'cifte' && matrix[rowB][m].type === 'tek') {
-        const temp = matrix[rowA][m];
-        matrix[rowA][m] = matrix[rowB][m];
-        matrix[rowB][m] = temp;
-        swapped = true;
-        break;
-      }
-    }
-
-    if (!swapped) {
-       const m = Math.floor(Math.random() * distributions.length);
-       const randR = Math.floor(Math.random() * couponCount);
-       // Only swap if we don't accidentally touch a 'kapali' in row A or randR
-       if (matrix[rowA][m].type !== 'kapali' && matrix[randR][m].type !== 'kapali') {
-          const temp = matrix[rowA][m];
-          matrix[rowA][m] = matrix[randR][m];
-          matrix[randR][m] = temp;
-       }
-    }
-  }
-
-  // 4. Matrix is now perfectly balanced. Map to SystemKupon array.
+  // 2. Map the shuffled matrix to SystemKupon array.
   return matrix.map((row) => {
     const selections: Record<number, string[]> = {}; // Map matchNumber to selections
     
     row.forEach((cell, idx) => {
       const matchNumber = distributions[idx].matchNumber;
-      // Convert '1X' -> ['1', 'X'], '1X2' -> ['1', 'X', '2']
-      const slcStr = cell.outcome;
-      const slcArr: string[] = [];
-      if (slcStr.includes('1')) slcArr.push('1');
-      if (slcStr.includes('X')) slcArr.push('X');
-      if (slcStr.includes('2')) slcArr.push('2');
-      selections[matchNumber] = slcArr;
+      selections[matchNumber] = outcomeToSelections(cell.outcome);
     });
 
     return {
       id: Math.random().toString(36).substring(2, 10),
-      price: formulaPrice,
+      price: calculateDistributedCouponPrice(row),
       selections,
     };
   });

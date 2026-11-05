@@ -120,7 +120,6 @@ Kurallar:
 - Kisa ve oz ol, gereksiz uzatma
 - Istatistik ve veri tabanli analiz yap
 - Tahminlerde ihtimalleri yuzde olarak belirt
-- Emoji kullan
 - Her yaniti markdown formatinda yaz
 - Eger guncel web verileri saglanmissa, bunlari oncelikli kullan`;
 

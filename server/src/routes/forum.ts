@@ -467,6 +467,8 @@ router.get('/notifications', requireAuth as any, (req: AuthRequest, res: Respons
       topicId: n.topic_id,
       topicTitle: n.topic_title,
       commentId: n.comment_id,
+      friendRequestId: n.friend_request_id,
+      couponId: n.coupon_id,
       reactionType: n.reaction_type || null,
       isRead: n.is_read === 1,
       createdAt: n.created_at,

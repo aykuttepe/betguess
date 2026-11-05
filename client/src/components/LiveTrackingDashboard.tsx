@@ -34,6 +34,7 @@ export default function LiveTrackingDashboard({ summary, programNo, fetchedAt, o
           <button
             onClick={onRefresh}
             disabled={loading}
+            data-feedback="Canli takip verileri yenileniyor..."
             className="live-dashboard-refresh"
           >
             {loading ? '...' : 'Yenile'}

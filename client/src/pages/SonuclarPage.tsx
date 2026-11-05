@@ -28,7 +28,12 @@ export default function SonuclarPage() {
                   {liveProgram.finishedCount} tamamlandi &middot; {liveProgram.inProgressCount} devam ediyor &middot; {liveProgram.notStartedCount} bekleniyor
                 </p>
               </div>
-              <button onClick={refetch} disabled={loading} className="live-dashboard-refresh">
+              <button
+                onClick={refetch}
+                disabled={loading}
+                data-feedback="Mac sonuclari yenileniyor..."
+                className="live-dashboard-refresh"
+              >
                 {loading ? '...' : 'Yenile'}
               </button>
             </div>

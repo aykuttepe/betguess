@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { getTeamStats } from '../services/team-stats-service';
 import {
+  getTeamStats,
   MatchIntelNotFoundError,
   MatchIntelUpstreamError,
-} from '../services/match-intel-service';
+} from '../services/sofascore-service';
 
 const router = Router();
 

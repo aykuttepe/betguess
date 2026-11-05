@@ -2,15 +2,25 @@ import { getDatabase } from './database';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type NotificationType = 'comment_on_topic' | 'reply_to_comment' | 'like_on_comment' | 'reaction_on_topic';
+export type NotificationType =
+  | 'comment_on_topic'
+  | 'reply_to_comment'
+  | 'like_on_comment'
+  | 'reaction_on_topic'
+  | 'friend_request'
+  | 'friend_accepted'
+  | 'friend_declined'
+  | 'coupon_shared';
 
 export interface NotificationRow {
   id: number;
   user_id: number;
   type: NotificationType;
   actor_id: number;
-  topic_id: number;
+  topic_id: number | null;
   comment_id: number | null;
+  friend_request_id: number | null;
+  coupon_id: number | null;
   reaction_type: string | null;
   is_read: number;
   created_at: string;
@@ -25,7 +35,7 @@ const NOTIF_SELECT = `
   SELECT n.*, u.username as actor_username, t.title as topic_title
   FROM forum_notifications n
   JOIN users u ON u.id = n.actor_id
-  JOIN forum_topics t ON t.id = n.topic_id
+  LEFT JOIN forum_topics t ON t.id = n.topic_id
 `;
 
 // ─── Functions ────────────────────────────────────────────────────────────────
@@ -34,18 +44,33 @@ export function createNotification(
   userId: number,
   type: NotificationType,
   actorId: number,
-  topicId: number,
+  topicId: number | null,
   commentId: number | null,
-  reactionType: string | null = null
+  reactionType: string | null = null,
+  options: {
+    friendRequestId?: number | null;
+    couponId?: number | null;
+  } = {}
 ): void {
   // Don't notify yourself
   if (userId === actorId) return;
 
   const db = getDatabase();
   db.prepare(`
-    INSERT INTO forum_notifications (user_id, type, actor_id, topic_id, comment_id, reaction_type)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(userId, type, actorId, topicId, commentId, reactionType);
+    INSERT INTO forum_notifications (
+      user_id, type, actor_id, topic_id, comment_id, friend_request_id, coupon_id, reaction_type
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    userId,
+    type,
+    actorId,
+    topicId,
+    commentId,
+    options.friendRequestId ?? null,
+    options.couponId ?? null,
+    reactionType,
+  );
 }
 
 export function getUnreadCount(userId: number): number {

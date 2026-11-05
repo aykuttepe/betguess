@@ -21,7 +21,7 @@ export default function PredictionTab({ eventId }: Props) {
 
   if (loading) return <Spinner />;
   if (error) return <ErrorMsg msg={error} />;
-  if (!data) return <Empty />;
+  if (!data || Object.keys(data).length === 0) return <Empty />;
 
   const home = data.homeWinProbability ?? (data as any).homeWin ?? null;
   const draw = data.drawProbability ?? (data as any).draw ?? null;

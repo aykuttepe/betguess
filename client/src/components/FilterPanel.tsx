@@ -63,6 +63,7 @@ export default function FilterPanel({
           <button
             onClick={handleFetchSuggested}
             disabled={suggestedLoading}
+            data-feedback="Gecmis veriye gore filtre onerisi aliniyor..."
             className="text-xs text-emerald-400 hover:text-emerald-300 disabled:opacity-50"
           >
             {suggestedLoading ? 'Yukleniyor...' : 'Gecmis Veriye Gore Oner'}
@@ -70,6 +71,7 @@ export default function FilterPanel({
           <span className="text-gray-600">|</span>
           <button
             onClick={onReset}
+            data-feedback="Filtreler varsayilana alindi."
             className="text-xs text-gray-400 hover:text-gray-300"
           >
             Sifirla
@@ -87,6 +89,8 @@ export default function FilterPanel({
           <span className="text-purple-400">Ard({suggestedFilters.maxConsecutive})</span>
           <button
             onClick={handleApplySuggested}
+            data-feedback="Onerilen filtreler uygulandi."
+            data-feedback-tone="success"
             className="ml-auto px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs transition-colors"
           >
             Uygula

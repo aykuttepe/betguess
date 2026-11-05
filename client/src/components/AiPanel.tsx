@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { showButtonFeedback } from '../lib/button-feedback';
 
 interface AiPanelProps {
     title?: string;
@@ -32,6 +33,7 @@ export default function AiPanel({ title, fetchFn, buttonLabel, autoLoad }: AiPan
         if (!content) return;
         navigator.clipboard.writeText(content).then(() => {
             setCopied(true);
+            showButtonFeedback('Analiz panoya kopyalandi.', 'success');
             setTimeout(() => setCopied(false), 2000);
         });
     }, [content]);
@@ -45,6 +47,7 @@ export default function AiPanel({ title, fetchFn, buttonLabel, autoLoad }: AiPan
         return (
             <button
                 onClick={load}
+                data-feedback="AI analizi hazirlaniyor..."
                 className="flex items-center gap-2 px-4 py-2 bg-purple-600/20 border border-purple-500/30 rounded-lg text-purple-300 hover:bg-purple-600/30 hover:text-purple-200 transition-all text-sm"
             >
                 <span className="text-lg">🤖</span>
