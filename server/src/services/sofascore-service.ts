@@ -207,44 +207,6 @@ interface SofaEvent {
   awayTeam?: { id?: number; name?: string };
 }
 
-interface KnownMatchFixture {
-  dateIso: string;
-  event: SofaEvent & Record<string, any>;
-  lineups: any;
-}
-
-const KNOWN_MATCH_FIXTURES: KnownMatchFixture[] = [
-  {
-    dateIso: '2026-05-17',
-    event: {
-      id: 14109926,
-      homeTeam: { id: 3056, name: 'Antalyaspor' },
-      awayTeam: { id: 3065, name: 'Kocaelispor' },
-      tournament: {
-        name: 'Trendyol Super Lig',
-        category: { name: 'Turkey' },
-      },
-      season: { name: 'Super Lig 25/26', id: 77805 },
-      status: { description: 'Not started', type: 'notstarted' },
-      startTimestamp: 1779037200,
-      roundInfo: { round: 34 },
-    },
-    lineups: {
-      homeManager: null,
-      awayManager: null,
-      homeMissing: [
-        {
-          name: 'Veysel Sari',
-          reason: 1,
-          description: 'Knock',
-          type: 'missing',
-        },
-      ],
-      awayMissing: [],
-    },
-  },
-];
-
 function parseMatchDate(matchDate: string): string {
   const parts = matchDate.split('.');
   if (parts.length !== 3) {
@@ -365,22 +327,6 @@ function isForbiddenUpstream(error: any): boolean {
   return status === 403 || /forbidden/i.test(message);
 }
 
-function findKnownMatchFixture(
-  dateIso: string,
-  homeTeam: string,
-  awayTeam: string
-): KnownMatchFixture | null {
-  return KNOWN_MATCH_FIXTURES.find((fixture) => (
-    fixture.dateIso === dateIso &&
-    teamSimilarity(homeTeam, fixture.event.homeTeam?.name || '') >= 0.55 &&
-    teamSimilarity(awayTeam, fixture.event.awayTeam?.name || '') >= 0.55
-  )) || null;
-}
-
-function findKnownFixtureByEventId(eventId: number): KnownMatchFixture | null {
-  return KNOWN_MATCH_FIXTURES.find((fixture) => fixture.event.id === eventId) || null;
-}
-
 function createFallbackEvent(
   homeTeam: string,
   awayTeam: string,
@@ -438,22 +384,12 @@ async function fetchSofa(path: string): Promise<any> {
     throw new MatchIntelUpstreamError(reason || 'SofaScore verisi alinamadi.');
   }
 }
-async function fetchSofaOptional(path: string, fallbackValue: any): Promise<any> {
-  try {
-    return await fetchSofa(path);
-  } catch (error: any) {
-    if (error instanceof MatchIntelNotFoundError) {
-      return fallbackValue;
-    }
-    throw error;
-  }
-}
 
-async function fetchSofaOptionalOnForbidden(path: string, fallbackValue: any): Promise<any> {
+async function fetchSofaOptional(path: string, fallbackValue: any, ignoreForbidden = false): Promise<any> {
   try {
     return await fetchSofa(path);
   } catch (error: any) {
-    if (error instanceof MatchIntelNotFoundError || isForbiddenUpstream(error)) {
+    if (error instanceof MatchIntelNotFoundError || (ignoreForbidden && isForbiddenUpstream(error))) {
       return fallbackValue;
     }
     throw error;
@@ -507,7 +443,6 @@ export interface SofaSearchResult {
 export async function searchSofaScore(query: string): Promise<{ results: SofaSearchResult[] }> {
   const data = await fetchSofa(`/search/all?q=${encodeURIComponent(query)}&locale=tr&page=0`);
 
-  // SofaScore zaten {results:[{type, entity, score}]} formatında dönüyor
   if (Array.isArray(data?.results)) {
     const results: SofaSearchResult[] = data.results
       .filter((r: any) => r?.entity?.id && r?.entity?.name && ['team', 'player', 'uniqueTournament'].includes(r?.type))
@@ -656,7 +591,6 @@ export async function getMatchIntel(
   matchDate: string
 ): Promise<MatchIntelResponse> {
   const dateIso = parseMatchDate(matchDate);
-  let knownFixture: KnownMatchFixture | null = null;
   let scheduledEvents: SofaEvent[] = [];
 
   try {
@@ -665,21 +599,14 @@ export async function getMatchIntel(
     if (!isForbiddenUpstream(error)) {
       throw error;
     }
-    knownFixture = findKnownMatchFixture(dateIso, homeTeam, awayTeam);
-    scheduledEvents = [knownFixture?.event || createFallbackEvent(homeTeam, awayTeam, dateIso)];
+    scheduledEvents = [createFallbackEvent(homeTeam, awayTeam, dateIso)];
   }
 
   if (scheduledEvents.length === 0) {
-    knownFixture = knownFixture || findKnownMatchFixture(dateIso, homeTeam, awayTeam);
-    scheduledEvents = [knownFixture?.event || createFallbackEvent(homeTeam, awayTeam, dateIso)];
+    scheduledEvents = [createFallbackEvent(homeTeam, awayTeam, dateIso)];
   }
 
-  const bestEvent = knownFixture?.event || findBestEvent(scheduledEvents, homeTeam, awayTeam);
-  if (!bestEvent) {
-    throw new MatchIntelNotFoundError(
-      `SofaScore'da eslesen mac bulunamadi: ${homeTeam} vs ${awayTeam} (${matchDate})`
-    );
-  }
+  const bestEvent = findBestEvent(scheduledEvents, homeTeam, awayTeam) || scheduledEvents[0];
 
   if (!bestEvent.id) {
     return createMatchIntelResponse(
@@ -690,28 +617,18 @@ export async function getMatchIntel(
     );
   }
 
-  knownFixture = knownFixture || findKnownFixtureByEventId(bestEvent.id);
-
   const cacheKey = `event:${bestEvent.id}`;
   const cached = eventIntelCache.get(cacheKey);
   if (cached) {
     return cached;
   }
 
-  const eventFallback = knownFixture ? { event: knownFixture.event } : null;
-  const [eventRaw, statisticsRaw, incidentsRaw, lineupsRaw] = knownFixture
-    ? await Promise.all([
-        fetchSofaOptionalOnForbidden(`/event/${bestEvent.id}`, eventFallback),
-        fetchSofaOptionalOnForbidden(`/event/${bestEvent.id}/statistics`, { statistics: [] }),
-        fetchSofaOptionalOnForbidden(`/event/${bestEvent.id}/incidents`, { incidents: [] }),
-        fetchSofaOptionalOnForbidden(`/event/${bestEvent.id}/lineups`, knownFixture.lineups),
-      ])
-    : await Promise.all([
-        fetchSofa(`/event/${bestEvent.id}`),
-        fetchSofaOptional(`/event/${bestEvent.id}/statistics`, { statistics: [] }),
-        fetchSofaOptional(`/event/${bestEvent.id}/incidents`, { incidents: [] }),
-        fetchSofaOptional(`/event/${bestEvent.id}/lineups`, {}),
-      ]);
+  const [eventRaw, statisticsRaw, incidentsRaw, lineupsRaw] = await Promise.all([
+    fetchSofa(`/event/${bestEvent.id}`),
+    fetchSofaOptional(`/event/${bestEvent.id}/statistics`, { statistics: [] }),
+    fetchSofaOptional(`/event/${bestEvent.id}/incidents`, { incidents: [] }),
+    fetchSofaOptional(`/event/${bestEvent.id}/lineups`, { lineups: {} }),
+  ]);
 
   const response = createMatchIntelResponse(eventRaw, statisticsRaw, incidentsRaw, lineupsRaw);
 
@@ -795,10 +712,7 @@ export async function getTeamStats(eventId: number): Promise<TeamStatsResponse> 
   const cached = teamStatsCache.get(cacheKey);
   if (cached) return cached;
 
-  const knownFixture = findKnownFixtureByEventId(eventId);
-  const eventRaw = knownFixture
-    ? await fetchSofaOptionalOnForbidden(`/event/${eventId}`, { event: knownFixture.event })
-    : await fetchSofa(`/event/${eventId}`);
+  const eventRaw = await fetchSofa(`/event/${eventId}`);
   const event = eventRaw?.event;
   if (!event) {
     throw new MatchIntelNotFoundError('Event bulunamadi.');
@@ -819,19 +733,11 @@ export async function getTeamStats(eventId: number): Promise<TeamStatsResponse> 
 
   const [standingsRaw, h2hRaw, homeRecentRaw, awayRecentRaw] = await Promise.all([
     standingsPath
-      ? knownFixture
-        ? fetchSofaOptionalOnForbidden(standingsPath, { standings: [] })
-        : fetchSofaOptional(standingsPath, { standings: [] })
+      ? fetchSofaOptional(standingsPath, { standings: [] })
       : Promise.resolve({ standings: [] }),
-    knownFixture
-      ? fetchSofaOptionalOnForbidden(`/event/${eventId}/h2h`, { teamDuel: { events: [] } })
-      : fetchSofaOptional(`/event/${eventId}/h2h`, { teamDuel: { events: [] } }),
-    knownFixture
-      ? fetchSofaOptionalOnForbidden(`/team/${homeTeamId}/events/last/0`, { events: [] })
-      : fetchSofaOptional(`/team/${homeTeamId}/events/last/0`, { events: [] }),
-    knownFixture
-      ? fetchSofaOptionalOnForbidden(`/team/${awayTeamId}/events/last/0`, { events: [] })
-      : fetchSofaOptional(`/team/${awayTeamId}/events/last/0`, { events: [] }),
+    fetchSofaOptional(`/event/${eventId}/h2h`, { teamDuel: { events: [] } }),
+    fetchSofaOptional(`/team/${homeTeamId}/events/last/0`, { events: [] }),
+    fetchSofaOptional(`/team/${awayTeamId}/events/last/0`, { events: [] }),
   ]);
 
   const response: TeamStatsResponse = {
@@ -864,4 +770,3 @@ export const __testables = {
   classifyAbsenteeStatus,
   extractAbsentees,
 };
-

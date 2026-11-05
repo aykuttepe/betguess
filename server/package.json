@@ -9,7 +9,6 @@
     "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
-    "@types/multer": "^2.1.0",
     "axios": "^1.13.6",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.8.0",

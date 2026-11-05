@@ -26,19 +26,19 @@ interface MatchDetailModalProps {
   onClose: () => void;
 }
 
-const TABS: Array<{ key: TabKey; label: string }> = [
-  { key: 'teams', label: 'Takimlar' },
-  { key: 'stats', label: 'Istatistikler' },
-  { key: 'prediction', label: 'Tahmin' },
-  { key: 'odds', label: 'Oranlar' },
-  { key: 'incidents', label: 'Olaylar' },
-  { key: 'lineups', label: 'Kadrolar' },
-  { key: 'shotmap', label: 'Sut Haritasi' },
-  { key: 'momentum', label: 'Momentum' },
-  { key: 'comments', label: 'Yorumlar' },
-  { key: 'highlights', label: 'Ozetler' },
-  { key: 'absentees', label: 'Sakat/Ceza' },
-  { key: 'cards', label: 'Kartlar' },
+const TABS: Array<{ key: TabKey; label: string; component?: React.ComponentType<any>; requiresEventId: boolean }> = [
+  { key: 'teams', label: 'Takimlar', requiresEventId: false },
+  { key: 'stats', label: 'Istatistikler', requiresEventId: false },
+  { key: 'prediction', label: 'Tahmin', component: PredictionTab, requiresEventId: true },
+  { key: 'odds', label: 'Oranlar', component: OddsTab, requiresEventId: true },
+  { key: 'incidents', label: 'Olaylar', component: IncidentsTab, requiresEventId: true },
+  { key: 'lineups', label: 'Kadrolar', requiresEventId: false },
+  { key: 'shotmap', label: 'Sut Haritasi', component: ShotmapTab, requiresEventId: true },
+  { key: 'momentum', label: 'Momentum', component: MomentumTab, requiresEventId: true },
+  { key: 'comments', label: 'Yorumlar', component: CommentsTab, requiresEventId: true },
+  { key: 'highlights', label: 'Ozetler', component: HighlightsTab, requiresEventId: true },
+  { key: 'absentees', label: 'Sakat/Ceza', requiresEventId: false },
+  { key: 'cards', label: 'Kartlar', requiresEventId: false },
 ];
 
 export default function MatchDetailModal({ match, onClose }: MatchDetailModalProps) {
@@ -46,8 +46,6 @@ export default function MatchDetailModal({ match, onClose }: MatchDetailModalPro
   const [data, setData] = useState<MatchIntelResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Team stats (lazy-loaded)
   const [teamStats, setTeamStats] = useState<TeamStatsResponse | null>(null);
   const [teamStatsLoading, setTeamStatsLoading] = useState(false);
   const [teamStatsError, setTeamStatsError] = useState<string | null>(null);
@@ -70,15 +68,10 @@ export default function MatchDetailModal({ match, onClose }: MatchDetailModalPro
     load();
   }, [load]);
 
-  // Lazy load team stats when teams tab is selected
   useEffect(() => {
-    if (tab !== 'teams') return;
-    if (!data?.eventMeta?.eventId) return;
-    if (teamStats || teamStatsLoading) return;
-
+    if (tab !== 'teams' || !data?.eventMeta?.eventId || teamStats || teamStatsLoading) return;
     setTeamStatsLoading(true);
     setTeamStatsError(null);
-
     fetchTeamStats(data.eventMeta.eventId)
       .then(setTeamStats)
       .catch((err: any) => setTeamStatsError(err?.message || 'Takim verileri alinamadi'))
@@ -86,11 +79,7 @@ export default function MatchDetailModal({ match, onClose }: MatchDetailModalPro
   }, [tab, data, teamStats, teamStatsLoading]);
 
   useEffect(() => {
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onEsc);
     return () => window.removeEventListener('keydown', onEsc);
   }, [onClose]);
@@ -100,27 +89,15 @@ export default function MatchDetailModal({ match, onClose }: MatchDetailModalPro
   return (
     <div
       className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm p-3 sm:p-6 overflow-y-auto"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          onClose();
-        }
-      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="max-w-5xl mx-auto bg-gray-900 border border-gray-700 rounded-xl shadow-2xl overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-700 bg-gray-800/80 flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-white font-bold text-base sm:text-lg">
-              {match.homeTeam} - {match.awayTeam}
-            </h3>
-            <p className="text-gray-400 text-xs sm:text-sm">
-              {match.matchDate} {match.matchTime}
-            </p>
+            <h3 className="text-white font-bold text-base sm:text-lg">{match.homeTeam} - {match.awayTeam}</h3>
+            <p className="text-gray-400 text-xs sm:text-sm">{match.matchDate} {match.matchTime}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors p-1"
-            aria-label="Kapat"
-          >
+          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors p-1" aria-label="Kapat">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -133,9 +110,7 @@ export default function MatchDetailModal({ match, onClose }: MatchDetailModalPro
               key={tabInfo.key}
               onClick={() => setTab(tabInfo.key)}
               className={`px-3 py-1.5 text-xs sm:text-sm rounded transition-colors ${
-                tab === tabInfo.key
-                  ? 'bg-emerald-500 text-white'
-                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                tab === tabInfo.key ? 'bg-emerald-500 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
               }`}
             >
               {tabInfo.label}
@@ -144,123 +119,40 @@ export default function MatchDetailModal({ match, onClose }: MatchDetailModalPro
         </div>
 
         <div className="p-4">
-          {loading && (
+          {loading ? (
             <div className="text-center py-10">
               <div className="inline-block w-8 h-8 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin" />
               <p className="mt-3 text-gray-400">Mac verileri yukleniyor...</p>
             </div>
-          )}
-
-          {error && !loading && (
+          ) : error ? (
             <div className="bg-red-900/30 border border-red-700 rounded-lg p-4 text-sm text-red-300">
               <p>{error}</p>
-              <button
-                onClick={load}
-                className="mt-2 px-3 py-1.5 bg-red-700 text-white rounded hover:bg-red-600 transition-colors"
-              >
-                Tekrar Dene
-              </button>
+              <button onClick={load} className="mt-2 px-3 py-1.5 bg-red-700 text-white rounded hover:bg-red-600 transition-colors">Tekrar Dene</button>
             </div>
-          )}
-
-          {!loading && !error && data && (
+          ) : data && (
             <>
               <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs sm:text-sm">
                 <InfoCard label="Turnuva" value={data.eventMeta.tournament || '-'} />
                 <InfoCard label="Kategori" value={data.eventMeta.category || '-'} />
                 <InfoCard label="Durum" value={data.eventMeta.status || '-'} />
-                <InfoCard
-                  label="Skor"
-                  value={
-                    data.eventMeta.homeScore !== null && data.eventMeta.awayScore !== null
-                      ? `${data.eventMeta.homeScore} - ${data.eventMeta.awayScore}`
-                      : '-'
-                  }
-                />
+                <InfoCard label="Skor" value={data.eventMeta.homeScore !== null && data.eventMeta.awayScore !== null ? `${data.eventMeta.homeScore} - ${data.eventMeta.awayScore}` : '-'} />
               </div>
 
-              {tab === 'teams' && (
-                <TeamsTab
-                  teamStats={teamStats}
-                  loading={teamStatsLoading}
-                  error={teamStatsError}
-                  onRetry={() => {
-                    setTeamStats(null);
-                    setTeamStatsError(null);
-                  }}
-                />
-              )}
-
-              {tab === 'stats' && (
-                <StatsTab groupedStats={groupedStats} />
-              )}
-
-              {tab === 'lineups' && (
-                <LineupsTab rawLineups={data.raw.lineups} />
-              )}
-
-              {tab === 'absentees' && (
-                <AbsenteesTab absentees={data.absentees} />
-              )}
-
+              {tab === 'teams' && <TeamsTab teamStats={teamStats} loading={teamStatsLoading} error={teamStatsError} onRetry={() => { setTeamStats(null); setTeamStatsError(null); }} />}
+              {tab === 'stats' && <StatsTab groupedStats={groupedStats} />}
+              {tab === 'lineups' && <LineupsTab rawLineups={data.raw.lineups} />}
+              {tab === 'absentees' && <AbsenteesTab absentees={data.absentees} />}
               {tab === 'cards' && <CardsTab cards={data.cards} />}
 
-              {tab === 'prediction' && (
-                data.eventMeta.eventId ? (
-                  <Suspense fallback={<TabSpinner />}>
-                    <PredictionTab eventId={data.eventMeta.eventId} />
-                  </Suspense>
-                ) : <UnavailableTab label="Tahmin verisi bulunamadi." />
+              {TABS.find(t => t.key === tab)?.component && (
+                TABS.find(t => t.key === tab)!.requiresEventId 
+                ? data.eventMeta.eventId ? (
+                    <Suspense fallback={<TabSpinner />}>
+                      {React.createElement(TABS.find(t => t.key === tab)!.component as any, { eventId: data.eventMeta.eventId })}
+                    </Suspense>
+                  ) : <UnavailableTab label="Veri bulunamadi." />
+                : <UnavailableTab label="Bu sekme desteklenmiyor." />
               )}
-
-              {tab === 'odds' && (
-                data.eventMeta.eventId ? (
-                  <Suspense fallback={<TabSpinner />}>
-                    <OddsTab eventId={data.eventMeta.eventId} />
-                  </Suspense>
-                ) : <UnavailableTab label="Oran verisi bulunamadi." />
-              )}
-
-              {tab === 'shotmap' && (
-                data.eventMeta.eventId ? (
-                  <Suspense fallback={<TabSpinner />}>
-                    <ShotmapTab eventId={data.eventMeta.eventId} />
-                  </Suspense>
-                ) : <UnavailableTab label="Sut haritasi verisi yok." />
-              )}
-
-              {tab === 'momentum' && (
-                data.eventMeta.eventId ? (
-                  <Suspense fallback={<TabSpinner />}>
-                    <MomentumTab eventId={data.eventMeta.eventId} />
-                  </Suspense>
-                ) : <UnavailableTab label="Momentum verisi bulunamadi." />
-              )}
-
-              {tab === 'comments' && (
-                data.eventMeta.eventId ? (
-                  <Suspense fallback={<TabSpinner />}>
-                    <CommentsTab eventId={data.eventMeta.eventId} />
-                  </Suspense>
-                ) : <UnavailableTab label="Yorum verisi bulunamadi." />
-              )}
-
-              {tab === 'incidents' && (
-                data.eventMeta.eventId ? (
-                  <Suspense fallback={<TabSpinner />}>
-                    <IncidentsTab eventId={data.eventMeta.eventId} />
-                  </Suspense>
-                ) : <UnavailableTab label="Olay verisi bulunamadi." />
-              )}
-
-              {tab === 'highlights' && (
-                data.eventMeta.eventId ? (
-                  <Suspense fallback={<TabSpinner />}>
-                    <HighlightsTab eventId={data.eventMeta.eventId} />
-                  </Suspense>
-                ) : <UnavailableTab label="Highlight bulunamadi." />
-              )}
-
             </>
           )}
         </div>
@@ -269,31 +161,15 @@ export default function MatchDetailModal({ match, onClose }: MatchDetailModalPro
   );
 }
 
-// ── Teams Tab ──────────────────────────────────────────────
+import React from 'react'; // Added missing import for React.createElement
+
+// --- Helper Components & Functions ---
 
 function createFallbackMatchIntel(match: SportTotoMatch): MatchIntelResponse {
   return {
-    eventMeta: {
-      eventId: 0,
-      tournament: '-',
-      category: '-',
-      status: 'Not started',
-      startTimestamp: 0,
-      startDateIso: '',
-      homeTeam: match.homeTeam,
-      awayTeam: match.awayTeam,
-      homeScore: null,
-      awayScore: null,
-    },
-    statisticsGroups: [],
-    cards: [],
-    absentees: [],
-    raw: {
-      event: null,
-      statistics: { statistics: [] },
-      incidents: { incidents: [] },
-      lineups: {},
-    },
+    eventMeta: { eventId: 0, tournament: '-', category: '-', status: 'Not started', startTimestamp: 0, startDateIso: '', homeTeam: match.homeTeam, awayTeam: match.awayTeam, homeScore: null, awayScore: null },
+    statisticsGroups: [], cards: [], absentees: [],
+    raw: { event: null, statistics: { statistics: [] }, incidents: { incidents: [] }, lineups: {} },
   };
 }
 
@@ -301,102 +177,38 @@ function UnavailableTab({ label }: { label: string }) {
   return <p className="text-gray-400 text-sm">{label}</p>;
 }
 
-function TeamsTab({
-  teamStats,
-  loading,
-  error,
-  onRetry,
-}: {
-  teamStats: TeamStatsResponse | null;
-  loading: boolean;
-  error: string | null;
-  onRetry: () => void;
-}) {
-  if (loading) {
-    return (
-      <div className="text-center py-8">
-        <div className="inline-block w-7 h-7 border-4 border-blue-400 border-t-transparent rounded-full animate-spin" />
-        <p className="mt-2 text-gray-400 text-sm">Takim istatistikleri yukleniyor...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="bg-red-900/30 border border-red-700 rounded-lg p-4 text-sm text-red-300">
-        <p>{error}</p>
-        <button
-          onClick={onRetry}
-          className="mt-2 px-3 py-1.5 bg-red-700 text-white rounded hover:bg-red-600 transition-colors"
-        >
-          Tekrar Dene
-        </button>
-      </div>
-    );
-  }
-
-  if (!teamStats) {
-    return <p className="text-gray-400 text-sm">Takim verisi bekleniyor...</p>;
-  }
+function TeamsTab({ teamStats, loading, error, onRetry }: { teamStats: TeamStatsResponse | null; loading: boolean; error: string | null; onRetry: () => void }) {
+  if (loading) return <div className="text-center py-8"><div className="inline-block w-7 h-7 border-4 border-blue-400 border-t-transparent rounded-full animate-spin" /><p className="mt-2 text-gray-400 text-sm">Takim istatistikleri yukleniyor...</p></div>;
+  if (error) return <div className="bg-red-900/30 border border-red-700 rounded-lg p-4 text-sm text-red-300"><p>{error}</p><button onClick={onRetry} className="mt-2 px-3 py-1.5 bg-red-700 text-white rounded hover:bg-red-600 transition-colors">Tekrar Dene</button></div>;
+  if (!teamStats) return <p className="text-gray-400 text-sm">Takim verisi bekleniyor...</p>;
 
   return (
     <div className="space-y-6">
       <StandingsCompare home={teamStats.homeTeam} away={teamStats.awayTeam} />
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <RecentFormCard title={teamStats.homeTeam.name} matches={teamStats.homeTeam.recentMatches} />
         <RecentFormCard title={teamStats.awayTeam.name} matches={teamStats.awayTeam.recentMatches} />
       </div>
-
       <H2HSection matches={teamStats.h2hMatches} />
     </div>
   );
 }
 
-function StandingsCompare({
-  home,
-  away,
-}: {
-  home: TeamStatsResponse['homeTeam'];
-  away: TeamStatsResponse['awayTeam'];
-}) {
-  if (!home.standing && !away.standing) {
-    return (
-      <div className="bg-gray-800/60 border border-gray-700 rounded-lg p-3">
-        <h4 className="text-white font-semibold text-sm mb-2">Puan Durumu</h4>
-        <p className="text-gray-400 text-sm">Puan durumu verisi bulunamadi.</p>
-      </div>
-    );
-  }
-
+function StandingsCompare({ home, away }: { home: TeamStatsResponse['homeTeam']; away: TeamStatsResponse['awayTeam'] }) {
+  if (!home.standing && !away.standing) return <div className="bg-gray-800/60 border border-gray-700 rounded-lg p-3"><h4 className="text-white font-semibold text-sm mb-2">Puan Durumu</h4><p className="text-gray-400 text-sm">Puan durumu verisi bulunamadi.</p></div>;
   const cols = ['Sira', 'O', 'G', 'B', 'M', 'AG', 'YG', 'Av', 'P'];
-
   return (
     <div className="bg-gray-800/60 border border-gray-700 rounded-lg overflow-hidden">
-      <div className="px-3 py-2 border-b border-gray-700 text-white font-semibold text-sm">
-        Puan Durumu Karsilastirmasi
-      </div>
+      <div className="px-3 py-2 border-b border-gray-700 text-white font-semibold text-sm">Puan Durumu Karsilastirmasi</div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs sm:text-sm">
-          <thead>
-            <tr className="text-gray-400 bg-gray-900/40">
-              <th className="px-3 py-2 text-left">Takim</th>
-              {cols.map((c) => (
-                <th key={c} className="px-2 py-2 text-center">{c}</th>
-              ))}
-            </tr>
+          <thead className="text-gray-400 bg-gray-900/40">
+            <tr><th className="px-3 py-2 text-left">Takim</th>{cols.map(c => <th key={c} className="px-2 py-2 text-center">{c}</th>)}</tr>
           </thead>
           <tbody>
             {[home, away].map((team) => {
               const s = team.standing;
-              if (!s) {
-                return (
-                  <tr key={team.id} className="border-t border-gray-700/70">
-                    <td className="px-3 py-2 text-gray-200 font-medium">{team.name}</td>
-                    <td colSpan={cols.length} className="px-3 py-2 text-gray-500 text-center">-</td>
-                  </tr>
-                );
-              }
+              if (!s) return <tr key={team.id} className="border-t border-gray-700/70"><td className="px-3 py-2 text-gray-200 font-medium">{team.name}</td><td colSpan={cols.length} className="px-3 py-2 text-gray-500 text-center">-</td></tr>;
               return (
                 <tr key={team.id} className="border-t border-gray-700/70">
                   <td className="px-3 py-2 text-gray-200 font-medium">{team.name}</td>
@@ -422,20 +234,12 @@ function StandingsCompare({
 function RecentFormCard({ title, matches }: { title: string; matches: RecentMatch[] }) {
   return (
     <div className="bg-gray-800/60 border border-gray-700 rounded-lg overflow-hidden">
-      <div className="px-3 py-2 border-b border-gray-700 text-white font-semibold text-sm">
-        {title} - Son Maclar
-      </div>
-      {matches.length === 0 ? (
-        <p className="px-3 py-3 text-gray-400 text-sm">Son mac verisi yok.</p>
-      ) : (
+      <div className="px-3 py-2 border-b border-gray-700 text-white font-semibold text-sm">{title} - Son Maclar</div>
+      {matches.length === 0 ? <p className="px-3 py-3 text-gray-400 text-sm">Son mac verisi yok.</p> : (
         <>
           <div className="px-3 py-2 flex gap-1.5">
             {matches.map((m) => (
-              <span
-                key={m.eventId}
-                className={`w-7 h-7 flex items-center justify-center rounded text-xs font-bold ${formBadgeClass(m.result)}`}
-                title={`${m.homeTeam} ${m.homeScore ?? '?'}-${m.awayScore ?? '?'} ${m.awayTeam}`}
-              >
+              <span key={m.eventId} className={`w-7 h-7 flex items-center justify-center rounded text-xs font-bold ${formBadgeClass(m.result)}`} title={`${m.homeTeam} ${m.homeScore ?? '?'}-${m.awayScore ?? '?'} ${m.awayTeam}`}>
                 {m.result === 'W' ? 'G' : m.result === 'D' ? 'B' : 'M'}
               </span>
             ))}
@@ -447,15 +251,9 @@ function RecentFormCard({ title, matches }: { title: string; matches: RecentMatc
                   <tr key={m.eventId} className="border-t border-gray-700/70">
                     <td className="px-3 py-1.5 text-gray-500">{formatShortDate(m.date)}</td>
                     <td className="px-2 py-1.5 text-gray-200 text-right truncate max-w-[100px]">{m.homeTeam}</td>
-                    <td className="px-2 py-1.5 text-center text-white font-medium whitespace-nowrap">
-                      {m.homeScore ?? '?'}-{m.awayScore ?? '?'}
-                    </td>
+                    <td className="px-2 py-1.5 text-center text-white font-medium whitespace-nowrap">{m.homeScore ?? '?'}-{m.awayScore ?? '?'}</td>
                     <td className="px-2 py-1.5 text-gray-200 truncate max-w-[100px]">{m.awayTeam}</td>
-                    <td className="px-2 py-1.5 text-center">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${formBadgeClass(m.result)}`}>
-                        {m.result === 'W' ? 'G' : m.result === 'D' ? 'B' : 'M'}
-                      </span>
-                    </td>
+                    <td className="px-2 py-1.5 text-center"><span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${formBadgeClass(m.result)}`}>{m.result === 'W' ? 'G' : m.result === 'D' ? 'B' : 'M'}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -470,31 +268,19 @@ function RecentFormCard({ title, matches }: { title: string; matches: RecentMatc
 function H2HSection({ matches }: { matches: H2HMatch[] }) {
   return (
     <div className="bg-gray-800/60 border border-gray-700 rounded-lg overflow-hidden">
-      <div className="px-3 py-2 border-b border-gray-700 text-white font-semibold text-sm">
-        Karsilikli Maclar
-      </div>
-      {matches.length === 0 ? (
-        <p className="px-3 py-3 text-gray-400 text-sm">Karsilikli mac verisi bulunamadi.</p>
-      ) : (
+      <div className="px-3 py-2 border-b border-gray-700 text-white font-semibold text-sm">Karsilikli Maclar</div>
+      {matches.length === 0 ? <p className="px-3 py-3 text-gray-400 text-sm">Karsilikli mac verisi bulunamadi.</p> : (
         <div className="overflow-x-auto max-h-[40vh] overflow-auto">
           <table className="w-full text-xs sm:text-sm">
-            <thead>
-              <tr className="text-gray-400 bg-gray-900/40">
-                <th className="px-3 py-2 text-left">Tarih</th>
-                <th className="px-3 py-2 text-right">Ev Sahibi</th>
-                <th className="px-3 py-2 text-center">Skor</th>
-                <th className="px-3 py-2 text-left">Deplasman</th>
-                <th className="px-3 py-2 text-left">Turnuva</th>
-              </tr>
+            <thead className="text-gray-400 bg-gray-900/40">
+              <tr><th className="px-3 py-2 text-left">Tarih</th><th className="px-3 py-2 text-right">Ev Sahibi</th><th className="px-3 py-2 text-center">Skor</th><th className="px-3 py-2 text-left">Deplasman</th><th className="px-3 py-2 text-left">Turnuva</th></tr>
             </thead>
             <tbody>
               {matches.map((m) => (
                 <tr key={m.eventId} className="border-t border-gray-700/70">
                   <td className="px-3 py-2 text-gray-500">{formatShortDate(m.date)}</td>
                   <td className="px-3 py-2 text-right text-gray-200">{m.homeTeam}</td>
-                  <td className="px-3 py-2 text-center text-white font-medium whitespace-nowrap">
-                    {m.homeScore ?? '?'} - {m.awayScore ?? '?'}
-                  </td>
+                  <td className="px-3 py-2 text-center text-white font-medium whitespace-nowrap">{m.homeScore ?? '?'} - {m.awayScore ?? '?'}</td>
                   <td className="px-3 py-2 text-gray-200">{m.awayTeam}</td>
                   <td className="px-3 py-2 text-gray-400 text-xs truncate max-w-[120px]">{m.tournament}</td>
                 </tr>
@@ -506,8 +292,6 @@ function H2HSection({ matches }: { matches: H2HMatch[] }) {
     </div>
   );
 }
-
-// ── Existing tabs ──────────────────────────────────────────
 
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
@@ -522,26 +306,15 @@ function groupStatsByPeriod(groups: MatchIntelStatisticsGroup[]): Record<string,
   const output: Record<string, MatchIntelStatisticsGroup[]> = {};
   for (const group of groups) {
     const period = group.period || 'ALL';
-    if (!output[period]) {
-      output[period] = [];
-    }
-    output[period].push({
-      ...group,
-      period,
-      items: Array.isArray(group.items) ? group.items : [],
-    });
+    if (!output[period]) output[period] = [];
+    output[period].push({ ...group, period, items: Array.isArray(group.items) ? group.items : [] });
   }
   return output;
 }
 
 function StatsTab({ groupedStats }: { groupedStats: Record<string, MatchIntelStatisticsGroup[]> }) {
-  const periods = Object.keys(groupedStats).filter((period) =>
-    groupedStats[period].some((group) => group.items.length > 0)
-  );
-  if (periods.length === 0) {
-    return <p className="text-gray-400 text-sm">Istatistik verisi bulunamadi.</p>;
-  }
-
+  const periods = Object.keys(groupedStats).filter((period) => groupedStats[period].some((group) => group.items.length > 0));
+  if (periods.length === 0) return <p className="text-gray-400 text-sm">Istatistik verisi bulunamadi.</p>;
   return (
     <div className="space-y-4">
       {periods.map((period) => (
@@ -550,17 +323,11 @@ function StatsTab({ groupedStats }: { groupedStats: Record<string, MatchIntelSta
           <div className="space-y-3">
             {groupedStats[period].filter((group) => group.items.length > 0).map((group, index) => (
               <div key={`${group.groupName}-${index}`} className="bg-gray-800/60 border border-gray-700 rounded-lg overflow-hidden">
-                <div className="px-3 py-2 border-b border-gray-700 text-white text-sm font-medium">
-                  {group.groupName}
-                </div>
+                <div className="px-3 py-2 border-b border-gray-700 text-white text-sm font-medium">{group.groupName}</div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs sm:text-sm">
-                    <thead>
-                      <tr className="text-gray-400 bg-gray-900/40">
-                        <th className="px-3 py-2 text-left">Istatistik</th>
-                        <th className="px-3 py-2 text-right">Ev</th>
-                        <th className="px-3 py-2 text-right">Dep</th>
-                      </tr>
+                    <thead className="text-gray-400 bg-gray-900/40">
+                      <tr><th className="px-3 py-2 text-left">Istatistik</th><th className="px-3 py-2 text-right">Ev</th><th className="px-3 py-2 text-right">Dep</th></tr>
                     </thead>
                     <tbody>
                       {group.items.map((item, itemIndex) => (
@@ -585,7 +352,6 @@ function StatsTab({ groupedStats }: { groupedStats: Record<string, MatchIntelSta
 function LineupsTab({ rawLineups }: { rawLineups: any }) {
   const homePlayers = Array.isArray(rawLineups?.home?.players) ? rawLineups.home.players : [];
   const awayPlayers = Array.isArray(rawLineups?.away?.players) ? rawLineups.away.players : [];
-
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <PlayerListCard title="Ev Sahibi Kadro" players={homePlayers} />
@@ -595,26 +361,14 @@ function LineupsTab({ rawLineups }: { rawLineups: any }) {
 }
 
 function PlayerListCard({ title, players }: { title: string; players: any[] }) {
-  if (players.length === 0) {
-    return (
-      <div className="bg-gray-800/60 border border-gray-700 rounded-lg p-3">
-        <h4 className="text-white font-semibold mb-2">{title}</h4>
-        <p className="text-gray-400 text-sm">Kadro verisi yok.</p>
-      </div>
-    );
-  }
-
+  if (players.length === 0) return <div className="bg-gray-800/60 border border-gray-700 rounded-lg p-3"><h4 className="text-white font-semibold mb-2">{title}</h4><p className="text-gray-400 text-sm">Kadro verisi yok.</p></div>;
   return (
     <div className="bg-gray-800/60 border border-gray-700 rounded-lg overflow-hidden">
       <div className="px-3 py-2 border-b border-gray-700 text-white font-semibold text-sm">{title}</div>
       <div className="max-h-[42vh] overflow-auto">
         <table className="w-full text-xs sm:text-sm">
-          <thead>
-            <tr className="text-gray-400">
-              <th className="px-3 py-2 text-left">Oyuncu</th>
-              <th className="px-3 py-2 text-center">Poz.</th>
-              <th className="px-3 py-2 text-center">Rol</th>
-            </tr>
+          <thead className="text-gray-400">
+            <tr><th className="px-3 py-2 text-left">Oyuncu</th><th className="px-3 py-2 text-center">Poz.</th><th className="px-3 py-2 text-center">Rol</th></tr>
           </thead>
           <tbody>
             {players.map((row, idx) => {
@@ -635,13 +389,9 @@ function PlayerListCard({ title, players }: { title: string; players: any[] }) {
 }
 
 function AbsenteesTab({ absentees }: { absentees: MatchIntelAbsentee[] }) {
-  if (absentees.length === 0) {
-    return <p className="text-gray-400 text-sm">Sakat/ceza verisi bulunamadi.</p>;
-  }
-
+  if (absentees.length === 0) return <p className="text-gray-400 text-sm">Sakat/ceza verisi bulunamadi.</p>;
   const home = absentees.filter((item) => item.side === 'home');
   const away = absentees.filter((item) => item.side === 'away');
-
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <AbsenteeListCard title="Ev Sahibi" items={home} />
@@ -654,16 +404,11 @@ function AbsenteeListCard({ title, items }: { title: string; items: MatchIntelAb
   return (
     <div className="bg-gray-800/60 border border-gray-700 rounded-lg overflow-hidden">
       <div className="px-3 py-2 border-b border-gray-700 text-white font-semibold text-sm">{title}</div>
-      {items.length === 0 ? (
-        <p className="px-3 py-3 text-gray-400 text-sm">Kayit yok.</p>
-      ) : (
+      {items.length === 0 ? <p className="px-3 py-3 text-gray-400 text-sm">Kayit yok.</p> : (
         <div className="max-h-[42vh] overflow-auto">
           <table className="w-full text-xs sm:text-sm">
-            <thead>
-              <tr className="text-gray-400">
-                <th className="px-3 py-2 text-left">Oyuncu</th>
-                <th className="px-3 py-2 text-left">Durum</th>
-              </tr>
+            <thead className="text-gray-400">
+              <tr><th className="px-3 py-2 text-left">Oyuncu</th><th className="px-3 py-2 text-left">Durum</th></tr>
             </thead>
             <tbody>
               {items.map((item, idx) => (
@@ -673,9 +418,7 @@ function AbsenteeListCard({ title, items }: { title: string; items: MatchIntelAb
                     {item.description && <div className="text-[11px] text-gray-400">{item.description}</div>}
                   </td>
                   <td className="px-3 py-2">
-                    <span className={`text-xs px-2 py-1 rounded ${statusClass(item.status)}`}>
-                      {statusLabel(item.status)}
-                    </span>
+                    <span className={`text-xs px-2 py-1 rounded ${statusClass(item.status)}`}>{statusLabel(item.status)}</span>
                   </td>
                 </tr>
               ))}
@@ -688,34 +431,22 @@ function AbsenteeListCard({ title, items }: { title: string; items: MatchIntelAb
 }
 
 function CardsTab({ cards }: { cards: MatchIntelCardIncident[] }) {
-  if (cards.length === 0) {
-    return <p className="text-gray-400 text-sm">Kart olayi bulunamadi.</p>;
-  }
-
+  if (cards.length === 0) return <p className="text-gray-400 text-sm">Kart olayi bulunamadi.</p>;
   return (
     <div className="bg-gray-800/60 border border-gray-700 rounded-lg overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-xs sm:text-sm">
-          <thead>
-            <tr className="text-gray-400 bg-gray-900/40">
-              <th className="px-3 py-2 text-left">Dakika</th>
-              <th className="px-3 py-2 text-left">Takim</th>
-              <th className="px-3 py-2 text-left">Oyuncu</th>
-              <th className="px-3 py-2 text-left">Kart</th>
-            </tr>
+          <thead className="text-gray-400 bg-gray-900/40">
+            <tr><th className="px-3 py-2 text-left">Dakika</th><th className="px-3 py-2 text-left">Takim</th><th className="px-3 py-2 text-left">Oyuncu</th><th className="px-3 py-2 text-left">Kart</th></tr>
           </thead>
           <tbody>
             {cards.map((card, idx) => (
               <tr key={`${card.id || idx}-${idx}`} className="border-t border-gray-700/70">
-                <td className="px-3 py-2 text-gray-200">
-                  {formatMinute(card.minute, card.addedTime)}
-                </td>
+                <td className="px-3 py-2 text-gray-200">{formatMinute(card.minute, card.addedTime)}</td>
                 <td className="px-3 py-2 text-gray-200">{teamLabel(card.team)}</td>
                 <td className="px-3 py-2 text-gray-200">{card.playerName || '-'}</td>
                 <td className="px-3 py-2">
-                  <span className={`text-xs px-2 py-1 rounded ${cardClass(card.cardType)}`}>
-                    {cardLabel(card.cardType)}
-                  </span>
+                  <span className={`text-xs px-2 py-1 rounded ${cardClass(card.cardType)}`}>{cardLabel(card.cardType)}</span>
                 </td>
               </tr>
             ))}
@@ -727,14 +458,8 @@ function CardsTab({ cards }: { cards: MatchIntelCardIncident[] }) {
 }
 
 function TabSpinner() {
-  return (
-    <div className="text-center py-8">
-      <div className="inline-block w-7 h-7 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin" />
-    </div>
-  );
+  return <div className="text-center py-8"><div className="inline-block w-7 h-7 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin" /></div>;
 }
-
-// ── Helpers ──────────────────────────────────────────────
 
 function stringifyValue(value: string | number | null): string {
   if (value === null || value === undefined || value === '') return '-';
@@ -743,9 +468,7 @@ function stringifyValue(value: string | number | null): string {
 
 function formatMinute(minute: number | null, addedTime: number | null): string {
   if (minute === null) return '-';
-  if (addedTime !== null && addedTime > 0 && addedTime < 90) {
-    return `${minute}+${addedTime}`;
-  }
+  if (addedTime !== null && addedTime > 0 && addedTime < 90) return `${minute}+${addedTime}`;
   return `${minute}`;
 }
 
@@ -794,9 +517,5 @@ function formatShortDate(isoDate: string): string {
   try {
     const d = new Date(isoDate);
     return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
-  } catch {
-    return '-';
-  }
+  } catch { return '-'; }
 }
-
-

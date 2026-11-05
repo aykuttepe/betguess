@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import {
   fetchPrediction,
   fetchMatchOdds,
@@ -66,8 +66,56 @@ import {
 } from '../services/team-service';
 import { getPlayerDetail, searchPlayers, clearPlayerCache } from '../services/player-service';
 
-
 const router = Router();
+
+// --- Utilities ---
+
+function handleError(res: Response, error: any): void {
+  if (error instanceof FootballApiNotFoundError) {
+    res.status(404).json({ error: error.message });
+    return;
+  }
+  if (error instanceof FootballApiUpstreamError) {
+    res.status(502).json({ error: error.message });
+    return;
+  }
+  console.error('[Football Route]', error?.message || error);
+  res.status(500).json({ error: error?.message || 'Beklenmeyen hata' });
+}
+
+// Wrapper to remove repetitive try-catch blocks
+const asyncHandler = (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) => 
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await fn(req, res, next);
+    } catch (e) {
+      handleError(res, e);
+    }
+  };
+
+function parseEventId(req: Request): number {
+  return parseInt(String(req.params.eventId), 10);
+}
+
+function hashString(value: string): number {
+  let hash = 0;
+  for (const char of value) {
+    hash = ((hash << 5) - hash) + char.charCodeAt(0);
+    hash |= 0;
+  }
+  return hash;
+}
+
+function normalizeSearch(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+// --- Local Catalog ---
+
 const LOCAL_SEASON_ID = new Date().getMonth() >= 6 ? new Date().getFullYear() : new Date().getFullYear() - 1;
 const LOCAL_TOURNAMENT_IDS: Record<string, number> = {
   'super-lig': 52,
@@ -117,27 +165,6 @@ const LOCAL_ALL_TOURNAMENTS = LOCAL_TOURNAMENTS.map((tournament) => ({
   name: tournament.name,
   type: tournament.type,
 }));
-
-function parseEventId(req: Request): number {
-  return parseInt(String(req.params.eventId), 10);
-}
-
-function hashString(value: string): number {
-  let hash = 0;
-  for (const char of value) {
-    hash = ((hash << 5) - hash) + char.charCodeAt(0);
-    hash |= 0;
-  }
-  return hash;
-}
-
-function normalizeSearch(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '');
-}
 
 function getLocalTournamentById(tournamentId: number) {
   return LOCAL_TOURNAMENTS.find((tournament) => tournament.id === tournamentId) ?? null;
@@ -240,128 +267,82 @@ async function searchLocalFootball(query: string) {
   return { results: results.slice(0, 30) };
 }
 
-function handleError(res: Response, error: any): void {
-  if (error instanceof FootballApiNotFoundError) {
-    res.status(404).json({ error: error.message });
-    return;
-  }
-  if (error instanceof FootballApiUpstreamError) {
-    res.status(502).json({ error: error.message });
-    return;
-  }
-  console.error('[Football Route]', error?.message || error);
-  res.status(500).json({ error: error?.message || 'Beklenmeyen hata' });
-}
+// --- Routes ---
 
-router.get('/matches/:eventId', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchMatchDetail(parseEventId(req)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/matches/:eventId', asyncHandler(async (req, res) => {
+  res.json(await fetchMatchDetail(parseEventId(req)));
+}));
 
-router.get('/matches/:eventId/lineups', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchMatchLineups(parseEventId(req)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/matches/:eventId/lineups', asyncHandler(async (req, res) => {
+  res.json(await fetchMatchLineups(parseEventId(req)));
+}));
 
-router.get('/matches/:eventId/h2h', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchMatchH2H(parseEventId(req)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/matches/:eventId/h2h', asyncHandler(async (req, res) => {
+  res.json(await fetchMatchH2H(parseEventId(req)));
+}));
 
-router.get('/matches/:eventId/player/:playerId/statistics', async (req: Request, res: Response) => {
-  try {
-    const { playerId } = req.params;
-    res.json(await fetchPlayerMatchStats(parseEventId(req), parseInt(String(playerId), 10)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/matches/:eventId/player/:playerId/statistics', asyncHandler(async (req, res) => {
+  const { playerId } = req.params;
+  res.json(await fetchPlayerMatchStats(parseEventId(req), parseInt(String(playerId), 10)));
+}));
 
-router.get('/matches/:eventId/predictions', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchPrediction(parseEventId(req)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/matches/:eventId/predictions', asyncHandler(async (req, res) => {
+  res.json(await fetchPrediction(parseEventId(req)));
+}));
 
-router.get('/matches/:eventId/odds', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchMatchOdds(parseEventId(req)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/matches/:eventId/odds', asyncHandler(async (req, res) => {
+  res.json(await fetchMatchOdds(parseEventId(req)));
+}));
 
-router.get('/matches/:eventId/shotmap', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchMatchShotmap(parseEventId(req)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/matches/:eventId/shotmap', asyncHandler(async (req, res) => {
+  res.json(await fetchMatchShotmap(parseEventId(req)));
+}));
 
-router.get('/matches/:eventId/graph', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchMatchGraph(parseEventId(req)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/matches/:eventId/graph', asyncHandler(async (req, res) => {
+  res.json(await fetchMatchGraph(parseEventId(req)));
+}));
 
-router.get('/matches/:eventId/comments', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchMatchComments(parseEventId(req)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/matches/:eventId/comments', asyncHandler(async (req, res) => {
+  res.json(await fetchMatchComments(parseEventId(req)));
+}));
 
-router.get('/matches/:eventId/incidents', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchMatchIncidents(parseEventId(req)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/matches/:eventId/incidents', asyncHandler(async (req, res) => {
+  res.json(await fetchMatchIncidents(parseEventId(req)));
+}));
 
-router.get('/matches/:eventId/best-players', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchMatchBestPlayers(parseEventId(req)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/matches/:eventId/best-players', asyncHandler(async (req, res) => {
+  res.json(await fetchMatchBestPlayers(parseEventId(req)));
+}));
 
-router.get('/matches/:eventId/votes', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchMatchVotes(parseEventId(req)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/matches/:eventId/votes', asyncHandler(async (req, res) => {
+  res.json(await fetchMatchVotes(parseEventId(req)));
+}));
 
-router.get('/matches/:eventId/highlights', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchMatchHighlights(parseEventId(req)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/matches/:eventId/highlights', asyncHandler(async (req, res) => {
+  res.json(await fetchMatchHighlights(parseEventId(req)));
+}));
 
-router.get('/matches/:eventId/pregame-form', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchMatchPregameForm(parseEventId(req)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/matches/:eventId/pregame-form', asyncHandler(async (req, res) => {
+  res.json(await fetchMatchPregameForm(parseEventId(req)));
+}));
 
-router.get('/matches/:eventId/managers', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchMatchManagers(parseEventId(req)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/matches/:eventId/managers', asyncHandler(async (req, res) => {
+  res.json(await fetchMatchManagers(parseEventId(req)));
+}));
 
-router.get('/live', async (_req: Request, res: Response) => {
-  // Zincir: SofaScore → ESPN
+router.get('/live', asyncHandler(async (_req, res) => {
   try {
     const result = await getLiveEvents();
     if (result.events.length > 0) return res.json(result);
     throw new Error('SofaScore boş döndü');
   } catch (_sofaErr) {
-    try {
-      const { getEspnLiveAndScheduled } = await import('../services/espn-service');
-      const result = await getEspnLiveAndScheduled();
-      res.json(result);
-    } catch (e) { handleError(res, e); }
+    const { getEspnLiveAndScheduled } = await import('../services/espn-service');
+    const result = await getEspnLiveAndScheduled();
+    res.json(result);
   }
-});
+}));
 
-// IMPORTANT: /live/scheduled and /live/finished must come BEFORE /live/:eventId
-router.get('/live/finished', async (_req: Request, res: Response) => {
-  // Zincir: SofaScore → ESPN
+router.get('/live/finished', asyncHandler(async (_req, res) => {
   const merge = (a: any[], b: any[]) => {
     const seen = new Set<any>();
     const out: any[] = [];
@@ -381,44 +362,35 @@ router.get('/live/finished', async (_req: Request, res: Response) => {
     if (combined.length > 0) return res.json({ events: combined });
     throw new Error('SofaScore boş döndü');
   } catch (_sofaErr) {
-    try {
-      const { getEspnLiveAndScheduled } = await import('../services/espn-service');
-      const result = await getEspnLiveAndScheduled();
-      res.json(result);
-    } catch (e) { handleError(res, e); }
+    const { getEspnLiveAndScheduled } = await import('../services/espn-service');
+    const result = await getEspnLiveAndScheduled();
+    res.json(result);
   }
-});
+}));
 
-router.get('/live/scheduled', async (req: Request, res: Response) => {
-  // Zincir: SofaScore → ESPN
+router.get('/live/scheduled', asyncHandler(async (req, res) => {
   try {
     const matchDate = req.query.matchDate as string | undefined;
     const result = await getScheduledEventsForDate(matchDate);
     res.json(result);
   } catch (_sofaErr) {
-    try {
-      const { getEspnLiveAndScheduled } = await import('../services/espn-service');
-      const result = await getEspnLiveAndScheduled();
-      res.json(result);
-    } catch (e) { handleError(res, e); }
+    const { getEspnLiveAndScheduled } = await import('../services/espn-service');
+    const result = await getEspnLiveAndScheduled();
+    res.json(result);
   }
-});
+}));
 
-router.get('/live/:eventId', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchLiveMatchDetail(parseEventId(req)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/live/:eventId', asyncHandler(async (req, res) => {
+  res.json(await fetchLiveMatchDetail(parseEventId(req)));
+}));
 
-
-router.get('/search', async (req: Request, res: Response) => {
+router.get('/search', asyncHandler(async (req, res) => {
   const q = String(req.query.q || '').trim();
   if (!q) {
     res.status(400).json({ error: 'q parametresi zorunlu.' });
     return;
   }
 
-  // Zincir: SofaScore → local catalog
   try {
     const data = await searchSofaScore(q);
     if (data.results.length > 0) return res.json(data);
@@ -426,40 +398,37 @@ router.get('/search', async (req: Request, res: Response) => {
   } catch (_sofaErr) {
     res.json(await searchLocalFootball(q));
   }
-});
+}));
 
-router.get('/trending', async (_req: Request, res: Response) => {
-  try {
-    res.json(await fetchTrending());
-  } catch (e) { handleError(res, e); }
-});
+router.get('/trending', asyncHandler(async (_req, res) => {
+  res.json(await fetchTrending());
+}));
 
-router.get('/popular-tournaments', async (_req: Request, res: Response) => {
+router.get('/popular-tournaments', asyncHandler(async (_req, res) => {
   try {
     res.json(await fetchPopularTournaments());
   } catch {
     res.json({ tournaments: LOCAL_ALL_TOURNAMENTS });
   }
-});
+}));
 
-router.get('/tournaments', async (_req: Request, res: Response) => {
+router.get('/tournaments', asyncHandler(async (_req, res) => {
   try {
     res.json(await fetchTournaments());
   } catch {
     res.json(getLocalTournamentCatalog());
   }
-});
+}));
 
-// IMPORTANT: /tournaments/categories must come BEFORE /tournaments/:tournamentId
-router.get('/tournaments/categories', async (_req: Request, res: Response) => {
+router.get('/tournaments/categories', asyncHandler(async (_req, res) => {
   try {
     res.json(await fetchTournamentCategories());
   } catch {
     res.json({ categories: [{ id: 1, name: 'Ligler' }, { id: 2, name: 'Kupalar' }] });
   }
-});
+}));
 
-router.get('/tournaments/categories/:categoryId/leagues', async (req: Request, res: Response) => {
+router.get('/tournaments/categories/:categoryId/leagues', asyncHandler(async (req, res) => {
   try {
     res.json(await fetchCategoryLeagues(parseInt(String(req.params.categoryId), 10)));
   } catch {
@@ -470,9 +439,9 @@ router.get('/tournaments/categories/:categoryId/leagues', async (req: Request, r
       ),
     });
   }
-});
+}));
 
-router.get('/tournaments/:tournamentId', async (req: Request, res: Response) => {
+router.get('/tournaments/:tournamentId', asyncHandler(async (req, res) => {
   try {
     res.json(await fetchTournamentInfo(parseInt(String(req.params.tournamentId), 10)));
   } catch (e) {
@@ -481,11 +450,11 @@ router.get('/tournaments/:tournamentId', async (req: Request, res: Response) => 
       res.json({ tournament: { id: tournament.id, name: tournament.name, slug: tournament.slug } });
       return;
     }
-    handleError(res, e);
+    throw e;
   }
-});
+}));
 
-router.get('/tournaments/:tournamentId/seasons', async (req: Request, res: Response) => {
+router.get('/tournaments/:tournamentId/seasons', asyncHandler(async (req, res) => {
   try {
     res.json(await fetchTournamentSeasons(parseInt(String(req.params.tournamentId), 10)));
   } catch (e) {
@@ -493,11 +462,11 @@ router.get('/tournaments/:tournamentId/seasons', async (req: Request, res: Respo
       res.json(getLocalSeasons());
       return;
     }
-    handleError(res, e);
+    throw e;
   }
-});
+}));
 
-router.get('/tournaments/:tournamentId/season/:seasonId/standings', async (req: Request, res: Response) => {
+router.get('/tournaments/:tournamentId/season/:seasonId/standings', asyncHandler(async (req, res) => {
   try {
     res.json(
       await fetchTournamentStandings(
@@ -510,12 +479,12 @@ router.get('/tournaments/:tournamentId/season/:seasonId/standings', async (req: 
     try {
       res.json(await getLocalTournamentStandings(parseInt(String(req.params.tournamentId), 10)));
     } catch {
-      handleError(res, e);
+      throw e;
     }
   }
-});
+}));
 
-router.get('/tournaments/:tournamentId/season/:seasonId/featured', async (req: Request, res: Response) => {
+router.get('/tournaments/:tournamentId/season/:seasonId/featured', asyncHandler(async (req, res) => {
   try {
     res.json(
       await fetchFeaturedEvents(
@@ -528,11 +497,11 @@ router.get('/tournaments/:tournamentId/season/:seasonId/featured', async (req: R
       res.json({ events: [] });
       return;
     }
-    handleError(res, e);
+    throw e;
   }
-});
+}));
 
-router.get('/tournaments/:tournamentId/season/:seasonId/rounds', async (req: Request, res: Response) => {
+router.get('/tournaments/:tournamentId/season/:seasonId/rounds', asyncHandler(async (req, res) => {
   try {
     res.json(
       await fetchTournamentRounds(
@@ -545,11 +514,11 @@ router.get('/tournaments/:tournamentId/season/:seasonId/rounds', async (req: Req
       res.json({ rounds: [] });
       return;
     }
-    handleError(res, e);
+    throw e;
   }
-});
+}));
 
-router.get('/tournaments/:tournamentId/season/:seasonId/events/round/:roundNum', async (req: Request, res: Response) => {
+router.get('/tournaments/:tournamentId/season/:seasonId/events/round/:roundNum', asyncHandler(async (req, res) => {
   try {
     res.json(
       await fetchRoundEvents(
@@ -563,11 +532,11 @@ router.get('/tournaments/:tournamentId/season/:seasonId/events/round/:roundNum',
       res.json({ events: [] });
       return;
     }
-    handleError(res, e);
+    throw e;
   }
-});
+}));
 
-router.get('/tournaments/:tournamentId/season/:seasonId/events/last', async (req: Request, res: Response) => {
+router.get('/tournaments/:tournamentId/season/:seasonId/events/last', asyncHandler(async (req, res) => {
   try {
     const page = parseInt(String(req.query.page || '0'), 10);
     res.json(
@@ -582,11 +551,11 @@ router.get('/tournaments/:tournamentId/season/:seasonId/events/last', async (req
       res.json({ events: [] });
       return;
     }
-    handleError(res, e);
+    throw e;
   }
-});
+}));
 
-router.get('/tournaments/:tournamentId/season/:seasonId/events/next', async (req: Request, res: Response) => {
+router.get('/tournaments/:tournamentId/season/:seasonId/events/next', asyncHandler(async (req, res) => {
   try {
     const page = parseInt(String(req.query.page || '0'), 10);
     res.json(
@@ -601,11 +570,11 @@ router.get('/tournaments/:tournamentId/season/:seasonId/events/next', async (req
       res.json({ events: [] });
       return;
     }
-    handleError(res, e);
+    throw e;
   }
-});
+}));
 
-router.get('/tournaments/:tournamentId/season/:seasonId/top-players', async (req: Request, res: Response) => {
+router.get('/tournaments/:tournamentId/season/:seasonId/top-players', asyncHandler(async (req, res) => {
   try {
     const statType = String(req.query.stat_type || 'goals');
     res.json(
@@ -620,11 +589,11 @@ router.get('/tournaments/:tournamentId/season/:seasonId/top-players', async (req
       res.json({ topPlayers: [] });
       return;
     }
-    handleError(res, e);
+    throw e;
   }
-});
+}));
 
-router.get('/tournaments/:tournamentId/season/:seasonId/top-teams', async (req: Request, res: Response) => {
+router.get('/tournaments/:tournamentId/season/:seasonId/top-teams', asyncHandler(async (req, res) => {
   try {
     const statType = String(req.query.stat_type || 'goals');
     res.json(
@@ -639,11 +608,11 @@ router.get('/tournaments/:tournamentId/season/:seasonId/top-teams', async (req: 
       res.json({ topTeams: [] });
       return;
     }
-    handleError(res, e);
+    throw e;
   }
-});
+}));
 
-router.get('/leagues', (_req: Request, res: Response) => {
+router.get('/leagues', asyncHandler(async (_req, res) => {
   res.json(
     LEAGUES.map((league) => ({
       id: league.id,
@@ -652,235 +621,168 @@ router.get('/leagues', (_req: Request, res: Response) => {
       hasTeamValues: true,
     }))
   );
-});
+}));
 
-router.get('/standings/:league', async (req: Request, res: Response) => {
-  try {
-    res.json(await getStandings(String(req.params.league)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/standings/:league', asyncHandler(async (req, res) => {
+  res.json(await getStandings(String(req.params.league)));
+}));
 
-router.post('/standings/:league/refresh', async (req: Request, res: Response) => {
+router.post('/standings/:league/refresh', asyncHandler(async (req, res) => {
   clearStandingsCache(String(req.params.league));
-  try {
-    res.json(await getStandings(String(req.params.league)));
-  } catch (e) { handleError(res, e); }
-});
+  res.json(await getStandings(String(req.params.league)));
+}));
 
-router.get('/team-values/:league', async (req: Request, res: Response) => {
-  try {
-    res.json(await getTeamValues(String(req.params.league)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/team-values/:league', asyncHandler(async (req, res) => {
+  res.json(await getTeamValues(String(req.params.league)));
+}));
 
-router.post('/team-values/:league/refresh', async (req: Request, res: Response) => {
+router.post('/team-values/:league/refresh', asyncHandler(async (req, res) => {
   clearTeamValuesCache(String(req.params.league));
-  try {
-    res.json(await getTeamValues(String(req.params.league)));
-  } catch (e) { handleError(res, e); }
-});
+  res.json(await getTeamValues(String(req.params.league)));
+}));
 
-// IMPORTANT: /teams/popular must come BEFORE /teams/:league to avoid "popular" being parsed as league param
-router.get('/teams/popular', async (_req: Request, res: Response) => {
-  try {
-    res.json(await fetchPopularTeams());
-  } catch (e) { handleError(res, e); }
-});
+router.get('/teams/popular', asyncHandler(async (_req, res) => {
+  res.json(await fetchPopularTeams());
+}));
 
-router.get('/teams/:league', async (req: Request, res: Response) => {
-  try {
-    res.json(await getTeamList(String(req.params.league)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/teams/:league', asyncHandler(async (req, res) => {
+  res.json(await getTeamList(String(req.params.league)));
+}));
 
-router.get('/teams/:teamId/detail', async (req: Request, res: Response) => {
-  try {
-    res.json(
-      await getTeamDetail(
-        String(req.params.teamId),
-        String(req.query.slug || ''),
-        String(req.query.league || 'super-lig')
-      )
-    );
-  } catch (e) { handleError(res, e); }
-});
+router.get('/teams/:teamId/detail', asyncHandler(async (req, res) => {
+  res.json(
+    await getTeamDetail(
+      String(req.params.teamId),
+      String(req.query.slug || ''),
+      String(req.query.league || 'super-lig')
+    )
+  );
+}));
 
-router.post('/teams/:teamId/detail/refresh', async (req: Request, res: Response) => {
+router.post('/teams/:teamId/detail/refresh', asyncHandler(async (req, res) => {
   clearTeamDetailCache(String(req.params.teamId));
-  try {
-    res.json(
-      await getTeamDetail(
-        String(req.params.teamId),
-        String(req.query.slug || ''),
-        String(req.query.league || 'super-lig')
-      )
-    );
-  } catch (e) { handleError(res, e); }
-});
+  res.json(
+    await getTeamDetail(
+      String(req.params.teamId),
+      String(req.query.slug || ''),
+      String(req.query.league || 'super-lig')
+    )
+  );
+}));
 
-router.get('/teams/:teamId/image', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchTeamImage(parseInt(String(req.params.teamId), 10)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/teams/:teamId/image', asyncHandler(async (req, res) => {
+  res.json(await fetchTeamImage(parseInt(String(req.params.teamId), 10)));
+}));
 
-// --- New Football API team endpoints ---
+router.get('/teams/:teamId/info', asyncHandler(async (req, res) => {
+  res.json(await fetchTeamInfo(parseInt(String(req.params.teamId), 10)));
+}));
 
-router.get('/teams/:teamId/info', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchTeamInfo(parseInt(String(req.params.teamId), 10)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/teams/:teamId/players', asyncHandler(async (req, res) => {
+  res.json(await fetchTeamPlayers(parseInt(String(req.params.teamId), 10)));
+}));
 
-router.get('/teams/:teamId/players', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchTeamPlayers(parseInt(String(req.params.teamId), 10)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/teams/:teamId/events/last', asyncHandler(async (req, res) => {
+  const page = parseInt(String(req.query.page || '0'), 10);
+  res.json(await fetchTeamLastEvents(parseInt(String(req.params.teamId), 10), page));
+}));
 
-router.get('/teams/:teamId/events/last', async (req: Request, res: Response) => {
-  try {
-    const page = parseInt(String(req.query.page || '0'), 10);
-    res.json(await fetchTeamLastEvents(parseInt(String(req.params.teamId), 10), page));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/teams/:teamId/events/next', asyncHandler(async (req, res) => {
+  const page = parseInt(String(req.query.page || '0'), 10);
+  res.json(await fetchTeamNextEvents(parseInt(String(req.params.teamId), 10), page));
+}));
 
-router.get('/teams/:teamId/events/next', async (req: Request, res: Response) => {
-  try {
-    const page = parseInt(String(req.query.page || '0'), 10);
-    res.json(await fetchTeamNextEvents(parseInt(String(req.params.teamId), 10), page));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/teams/:teamId/transfers', asyncHandler(async (req, res) => {
+  res.json(await fetchTeamTransfers(parseInt(String(req.params.teamId), 10)));
+}));
 
-router.get('/teams/:teamId/transfers', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchTeamTransfers(parseInt(String(req.params.teamId), 10)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/teams/:teamId/statistics', asyncHandler(async (req, res) => {
+  res.json(
+    await fetchTeamStatistics(
+      parseInt(String(req.params.teamId), 10),
+      parseInt(String(req.query.tournament_id || '0'), 10),
+      parseInt(String(req.query.season_id || '0'), 10)
+    )
+  );
+}));
 
-router.get('/teams/:teamId/statistics', async (req: Request, res: Response) => {
-  try {
-    res.json(
-      await fetchTeamStatistics(
-        parseInt(String(req.params.teamId), 10),
-        parseInt(String(req.query.tournament_id || '0'), 10),
-        parseInt(String(req.query.season_id || '0'), 10)
-      )
-    );
-  } catch (e) { handleError(res, e); }
-});
+router.get('/teams/:teamId/seasons', asyncHandler(async (req, res) => {
+  res.json(await fetchTeamSeasons(parseInt(String(req.params.teamId), 10)));
+}));
 
-router.get('/teams/:teamId/seasons', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchTeamSeasons(parseInt(String(req.params.teamId), 10)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/teams/:teamId/near-events', asyncHandler(async (req, res) => {
+  res.json(await fetchTeamNearEvents(parseInt(String(req.params.teamId), 10)));
+}));
 
-router.get('/teams/:teamId/near-events', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchTeamNearEvents(parseInt(String(req.params.teamId), 10)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/players/search', asyncHandler(async (req, res) => {
+  const q = String(req.query.q || '');
+  const league = String(req.query.league || '');
+  const limit = Math.min(parseInt(String(req.query.limit || '30'), 10) || 30, 50);
+  res.json({ results: await searchPlayers(q, league, limit) });
+}));
 
-router.get('/players/search', async (req: Request, res: Response) => {
-  try {
-    const q = String(req.query.q || '');
-    const league = String(req.query.league || '');
-    const limit = Math.min(parseInt(String(req.query.limit || '30'), 10) || 30, 50);
-    res.json({ results: await searchPlayers(q, league, limit) });
-  } catch (e) { handleError(res, e); }
-});
+router.get('/players/:playerId/profile', asyncHandler(async (req, res) => {
+  const source = String(req.query.source || 'sofa') === 'tm' ? 'tm' : 'sofa';
+  res.json(await getPlayerDetail(String(req.params.playerId), String(req.query.slug || ''), source));
+}));
 
-router.get('/players/:playerId/profile', async (req: Request, res: Response) => {
-  try {
-    const source = String(req.query.source || 'sofa') === 'tm' ? 'tm' : 'sofa';
-    res.json(await getPlayerDetail(String(req.params.playerId), String(req.query.slug || ''), source));
-  } catch (e) { handleError(res, e); }
-});
-
-router.post('/players/:playerId/profile/refresh', async (req: Request, res: Response) => {
+router.post('/players/:playerId/profile/refresh', asyncHandler(async (req, res) => {
   clearPlayerCache(String(req.params.playerId));
-  try {
-    const source = String(req.query.source || 'sofa') === 'tm' ? 'tm' : 'sofa';
-    res.json(await getPlayerDetail(String(req.params.playerId), String(req.query.slug || ''), source));
-  } catch (e) { handleError(res, e); }
-});
+  const source = String(req.query.source || 'sofa') === 'tm' ? 'tm' : 'sofa';
+  res.json(await getPlayerDetail(String(req.params.playerId), String(req.query.slug || ''), source));
+}));
 
-// --- New Football API player endpoints ---
+router.get('/players/:playerId/image', asyncHandler(async (req, res) => {
+  res.json(await fetchPlayerImage(parseInt(String(req.params.playerId), 10)));
+}));
 
-router.get('/players/:playerId/image', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchPlayerImage(parseInt(String(req.params.playerId), 10)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/players/:playerId/seasons', asyncHandler(async (req, res) => {
+  res.json(await fetchPlayerSeasons(parseInt(String(req.params.playerId), 10)));
+}));
 
-router.get('/players/:playerId/seasons', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchPlayerSeasons(parseInt(String(req.params.playerId), 10)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/players/:playerId/statistics', asyncHandler(async (req, res) => {
+  res.json(
+    await fetchPlayerStatistics(
+      parseInt(String(req.params.playerId), 10),
+      parseInt(String(req.query.tournament_id || '0'), 10),
+      parseInt(String(req.query.season_id || '0'), 10)
+    )
+  );
+}));
 
-router.get('/players/:playerId/statistics', async (req: Request, res: Response) => {
-  try {
-    res.json(
-      await fetchPlayerStatistics(
-        parseInt(String(req.params.playerId), 10),
-        parseInt(String(req.query.tournament_id || '0'), 10),
-        parseInt(String(req.query.season_id || '0'), 10)
-      )
-    );
-  } catch (e) { handleError(res, e); }
-});
+router.get('/players/:playerId/events/last', asyncHandler(async (req, res) => {
+  const page = parseInt(String(req.query.page || '0'), 10);
+  res.json(await fetchPlayerLastEvents(parseInt(String(req.params.playerId), 10), page));
+}));
 
-router.get('/players/:playerId/events/last', async (req: Request, res: Response) => {
-  try {
-    const page = parseInt(String(req.query.page || '0'), 10);
-    res.json(await fetchPlayerLastEvents(parseInt(String(req.params.playerId), 10), page));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/players/:playerId/events/next', asyncHandler(async (req, res) => {
+  const page = parseInt(String(req.query.page || '0'), 10);
+  res.json(await fetchPlayerNextEvents(parseInt(String(req.params.playerId), 10), page));
+}));
 
-router.get('/players/:playerId/events/next', async (req: Request, res: Response) => {
-  try {
-    const page = parseInt(String(req.query.page || '0'), 10);
-    res.json(await fetchPlayerNextEvents(parseInt(String(req.params.playerId), 10), page));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/players/:playerId/transfer-history', asyncHandler(async (req, res) => {
+  res.json(await fetchPlayerTransferHistory(parseInt(String(req.params.playerId), 10)));
+}));
 
-router.get('/players/:playerId/transfer-history', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchPlayerTransferHistory(parseInt(String(req.params.playerId), 10)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/players/:playerId/heatmap/:eventId', asyncHandler(async (req, res) => {
+  res.json(
+    await fetchPlayerHeatmap(
+      parseInt(String(req.params.playerId), 10),
+      parseInt(String(req.params.eventId), 10)
+    )
+  );
+}));
 
-router.get('/players/:playerId/heatmap/:eventId', async (req: Request, res: Response) => {
-  try {
-    res.json(
-      await fetchPlayerHeatmap(
-        parseInt(String(req.params.playerId), 10),
-        parseInt(String(req.params.eventId), 10)
-      )
-    );
-  } catch (e) { handleError(res, e); }
-});
+router.get('/players/:playerId/national-team', asyncHandler(async (req, res) => {
+  res.json(await fetchPlayerNationalTeam(parseInt(String(req.params.playerId), 10)));
+}));
 
-router.get('/players/:playerId/national-team', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchPlayerNationalTeam(parseInt(String(req.params.playerId), 10)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/players/:playerId/characteristics', asyncHandler(async (req, res) => {
+  res.json(await fetchPlayerCharacteristics(parseInt(String(req.params.playerId), 10)));
+}));
 
-router.get('/players/:playerId/characteristics', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchPlayerCharacteristics(parseInt(String(req.params.playerId), 10)));
-  } catch (e) { handleError(res, e); }
-});
-
-router.get('/players/:playerId/attributes', async (req: Request, res: Response) => {
-  try {
-    res.json(await fetchPlayerAttributes(parseInt(String(req.params.playerId), 10)));
-  } catch (e) { handleError(res, e); }
-});
+router.get('/players/:playerId/attributes', asyncHandler(async (req, res) => {
+  res.json(await fetchPlayerAttributes(parseInt(String(req.params.playerId), 10)));
+}));
 
 export default router;
-
-
