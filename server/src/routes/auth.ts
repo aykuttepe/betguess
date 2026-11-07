@@ -1,8 +1,8 @@
 import { TIER_LIMITS_CONFIG, COUPON_LIMITS, KOLON_LIMITS, HISTORY_LIMITS, effectiveTier } from '../auth/subscription-policy';
 import { isSubscriptionSystemActive } from '../db/settings-repository';
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
-import { authRateLimit } from '../middleware/auth-rate-limit';
+import { authRateLimit, clearAccountRateLimit, userRateLimit } from '../middleware/auth-rate-limit';
 import { register, login, toPublicUser } from '../auth/auth-service';
 import { setAuthCookies, clearAuthCookies } from '../auth/cookie-utils';
 import { requireAuth } from '../auth/auth-middleware';
@@ -17,6 +17,22 @@ import { getUserUsageSummary, getSavedCouponCount } from '../db/usage-repository
 
 const router = Router();
 
+// All windows are 15 minutes. Login: 30/IP, 10/account (cleared on success).
+const loginRateLimit = authRateLimit('login', 10);
+// Register: 10/IP, 3/email. Also bounds the WhatsApp OTP sent at sign-up.
+const registerRateLimit = authRateLimit('register', 3, 10);
+// Authenticated WhatsApp OTP sends: 3 per user across every send path.
+const otpSendRateLimit = userRateLimit('otp-send', 3);
+// Profile saves only send an OTP when the phone number actually changes.
+function otpSendRateLimitOnPhoneChange(req: AuthRequest, res: Response, next: NextFunction): void {
+  const requested = req.body?.phoneNumber;
+  if (typeof requested !== 'string' || !requested.trim() || arePhoneNumbersEquivalent(req.user?.phoneNumber, requested)) {
+    next();
+    return;
+  }
+  otpSendRateLimit(req, res, next);
+}
+
 router.get('/latest-users', (_req, res) => {
   try {
     const users = getLatestUsers(5);
@@ -26,7 +42,7 @@ router.get('/latest-users', (_req, res) => {
   }
 });
 
-router.post('/register', async (req, res) => {
+router.post('/register', registerRateLimit, async (req, res) => {
   try {
     const { email, username, password, phoneNumber } = req.body;
 
@@ -50,7 +66,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', loginRateLimit, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -60,6 +76,7 @@ router.post('/login', async (req, res) => {
     }
 
     const result = await login(email, password);
+    clearAccountRateLimit('login', email);
     setAuthCookies(res, result.accessToken, result.refreshToken);
 
     res.json({ user: toPublicUser(result.user) });
@@ -84,7 +101,7 @@ router.get('/whatsapp-info', requireAuth as any, (_req: AuthRequest, res: Respon
 });
 
 // Update phone number (or set for first time)
-router.post('/update-phone', requireAuth as any, async (req: AuthRequest, res: Response) => {
+router.post('/update-phone', requireAuth as any, otpSendRateLimit as any, async (req: AuthRequest, res: Response) => {
   try {
     const { phoneNumber } = req.body;
     if (!phoneNumber || phoneNumber.trim().length < 10) {
@@ -129,7 +146,7 @@ router.post('/update-phone', requireAuth as any, async (req: AuthRequest, res: R
 });
 
 // Send (or re-send) verification OTP
-router.post('/send-verification-otp', requireAuth as any, async (req: AuthRequest, res: Response) => {
+router.post('/send-verification-otp', requireAuth as any, otpSendRateLimit as any, async (req: AuthRequest, res: Response) => {
   try {
     const userRow = findById(req.user!.id);
     if (!userRow || !userRow.phone_number) {
@@ -281,7 +298,7 @@ router.get('/profile', requireAuth as any, (req: AuthRequest, res: Response) => 
   }
 });
 
-router.patch('/profile', requireAuth as any, (req: AuthRequest, res: Response) => {
+router.patch('/profile', requireAuth as any, otpSendRateLimitOnPhoneChange as any, (req: AuthRequest, res: Response) => {
   void (async () => {
     try {
       const result = await updateOwnProfile({

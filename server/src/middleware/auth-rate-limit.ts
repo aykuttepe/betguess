@@ -27,15 +27,24 @@ function reject(res: Response, windowMs: number): void {
   res.status(429).json({ error: 'Cok fazla deneme. Lutfen daha sonra tekrar deneyin.' });
 }
 
+const normalizeEmail = (value: unknown) => typeof value === 'string' ? value.trim().toLowerCase() : '';
+const accountKey = (action: string, email: string) => `${action}:account:${digest(email)}`;
+
 // Per IP plus per account (request body email).
-export function authRateLimit(action: string, accountLimit: number) {
+export function authRateLimit(action: string, accountLimit: number, ipLimit = 30) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-    const keys: Array<[string, number]> = [[`${action}:ip:${digest(req.ip || 'unknown')}`, 30]];
-    if (email) keys.push([`${action}:account:${digest(email)}`, accountLimit]);
+    const email = normalizeEmail(req.body?.email);
+    const keys: Array<[string, number]> = [[`${action}:ip:${digest(req.ip || 'unknown')}`, ipLimit]];
+    if (email) keys.push([accountKey(action, email), accountLimit]);
     if (!consume(keys, DEFAULT_WINDOW_MS)) { reject(res, DEFAULT_WINDOW_MS); return; }
     next();
   };
+}
+
+// After a successful login, forget that account's failures so a later typo does not lock the owner out.
+export function clearAccountRateLimit(action: string, email: unknown): void {
+  const normalized = normalizeEmail(email);
+  if (normalized) getDatabase().prepare('DELETE FROM auth_rate_limits WHERE key = ?').run(accountKey(action, normalized));
 }
 
 // Per authenticated user; applies regardless of role or subscription toggle (technical abuse limit).

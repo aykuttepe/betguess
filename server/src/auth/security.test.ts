@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import Database from 'better-sqlite3';
+import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import * as database from '../db/database';
 import { saveOtp, verifyOtp, createUser, findById } from '../db/user-repository';
@@ -39,8 +40,23 @@ function response() {
     status(code: number) { this.statusCode = code; return this; },
     json(body: unknown) { this.body = body; return this; },
     setHeader(_key: string, _value: string) {},
+    cookie(_name: string, _value: string, _options: unknown) {},
     clearCookie(_name: string, _options: unknown) {},
   });
+  return res;
+}
+
+// Runs every layer of a real auth route (middleware + handler) until one stops calling next().
+async function runAuthRoute(method: string, path: string, req: Partial<AuthRequest>) {
+  process.env.JWT_SECRET ??= randomBytes(32).toString('hex'); // auth-service validates it on import
+  const { default: router } = await import('../routes/auth');
+  const route = router.stack.find((layer: any) => layer.route?.path === path && layer.route.methods[method])!.route!;
+  const res = response();
+  for (const layer of route.stack) {
+    let advanced = false;
+    await layer.handle(req as AuthRequest, res as unknown as Response, () => { advanced = true; });
+    if (!advanced) break;
+  }
   return res;
 }
 
@@ -236,6 +252,52 @@ test('per-user rate limit ignores IP, isolates users and applies to admins', () 
     middleware({} as AuthRequest, anonymous as unknown as Response, () => { calls++; });
     assert.equal(anonymous.statusCode, 401);
     assert.equal(calls, 4);
+  } finally { f.close(); }
+});
+
+test('login: 10 failures per account across IPs, cleared by a successful login', async () => {
+  const f = fixture();
+  try {
+    f.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await bcrypt.hash('right-password', 4), f.user.id);
+    let ip = 0;
+    const attempt = (password: string) => runAuthRoute('post', '/login',
+      { body: { email: 'Test@Example.com ', password }, ip: `198.51.100.${ip++}` });
+    for (let i = 0; i < 9; i++) assert.equal((await attempt('wrong')).statusCode, 401);
+    assert.equal((await attempt('right-password')).statusCode, 200);
+    for (let i = 0; i < 10; i++) assert.equal((await attempt('wrong')).statusCode, 401);
+    const blocked = await attempt('right-password');
+    assert.equal(blocked.statusCode, 429);
+  } finally { f.close(); }
+});
+
+test('login and register are capped per IP', async () => {
+  const f = fixture();
+  try {
+    for (let i = 0; i < 31; i++) {
+      const res = await runAuthRoute('post', '/login', { body: { email: `user${i}@example.com`, password: 'x' }, ip: '203.0.113.5' });
+      assert.equal(res.statusCode, i === 30 ? 429 : 401);
+    }
+    for (let i = 0; i < 11; i++) {
+      const res = await runAuthRoute('post', '/register', { body: { email: `new${i}@example.com` }, ip: '203.0.113.6' });
+      assert.equal(res.statusCode, i === 10 ? 429 : 400);
+    }
+  } finally { f.close(); }
+});
+
+test('OTP sends are capped at 3 per user across send paths; profile saves without a phone change are not', async () => {
+  const f = fixture();
+  try {
+    const auth = await import('./auth-service');
+    const cookies = { access_token: auth.generateTokens(f.user).accessToken };
+    const statuses = [
+      (await runAuthRoute('post', '/send-verification-otp', { cookies, body: {} })).statusCode,
+      (await runAuthRoute('post', '/update-phone', { cookies, body: { phoneNumber: '1' } })).statusCode,
+      (await runAuthRoute('patch', '/profile', { cookies, body: { phoneNumber: '05551234567' } })).statusCode,
+      (await runAuthRoute('post', '/send-verification-otp', { cookies, body: {} })).statusCode,
+    ];
+    assert.deepEqual(statuses.map(status => status === 429), [false, false, false, true]);
+    const usernameOnly = await runAuthRoute('patch', '/profile', { cookies, body: { username: 'renamed' } });
+    assert.notEqual(usernameOnly.statusCode, 429);
   } finally { f.close(); }
 });
 
