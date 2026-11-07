@@ -39,3 +39,7 @@ server/uploads/
 server/cookies.txt
 .claude/settings.local.json
 *.tmp
+
+# AI Development Kit local artifacts (never commit)
+.ai-dev-kit-backups/
+graphify-out/
