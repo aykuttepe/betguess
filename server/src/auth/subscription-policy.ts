@@ -19,7 +19,7 @@ export const COUPON_LIMITS: Record<SubscriptionTier, number> = {
 };
 
 export const KOLON_LIMITS: Record<SubscriptionTier, number> = {
-  free: -1,      // free: unlimited per generation, but 5 uses/day
+  free: 10000,   // per generation; free also has 5 uses/day
   pro: 50000,
   premium: 500000,
 };

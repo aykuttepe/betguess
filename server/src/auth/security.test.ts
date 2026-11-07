@@ -9,7 +9,9 @@ import * as database from '../db/database';
 import { saveOtp, verifyOtp, createUser, findById } from '../db/user-repository';
 import { setSubscriptionSystemActive } from '../db/settings-repository';
 import { requireUsageLimit } from '../middleware/usage-limit';
-import { authRateLimit } from '../middleware/auth-rate-limit';
+import { authRateLimit, userRateLimit } from '../middleware/auth-rate-limit';
+import { kolonCountLimit } from '../routes/kolons';
+import { MAX_KOLON_COUNT, validateKolonInputs } from '../services/kolon-generation';
 import { effectiveTier } from './subscription-policy';
 import { allowedOrigins, corsPolicy } from './cors-policy';
 import { AuthUser, AuthRequest } from './types';
@@ -23,6 +25,12 @@ function fixture() {
   const user: AuthUser = { id: row.id, email: row.email, username: row.username, role: 'user', title: null,
     subscriptionTier: 'free', subscriptionExpiresAt: null, isActive: true, phoneNumber: null, phoneVerified: false };
   return { db, user, close() { db.close(); } };
+}
+
+// Free-tier user without a database, for pure policy checks.
+function f0(): AuthUser {
+  return { id: 1, email: 'free@example.com', username: 'free', role: 'user', title: null,
+    subscriptionTier: 'free', subscriptionExpiresAt: null, isActive: true, phoneNumber: null, phoneVerified: false };
 }
 
 function response() {
@@ -209,6 +217,39 @@ test('account reset rate limit survives different client IPs', () => {
     }
     assert.equal(calls, 5);
   } finally { f.close(); }
+});
+
+test('per-user rate limit ignores IP, isolates users and applies to admins', () => {
+  const f = fixture();
+  try {
+    const middleware = userRateLimit('kolon-test', 3, 60 * 1000); let calls = 0;
+    const admin = { ...f.user, role: 'admin' as const };
+    for (let i = 0; i < 4; i++) {
+      const res = response();
+      middleware({ user: admin, ip: `ip-${i}` } as AuthRequest, res as unknown as Response, () => { calls++; });
+      assert.equal(res.statusCode, i === 3 ? 429 : 200);
+    }
+    const other = response();
+    middleware({ user: { ...f.user, id: f.user.id + 1 } } as AuthRequest, other as unknown as Response, () => { calls++; });
+    assert.equal(other.statusCode, 200);
+    const anonymous = response();
+    middleware({} as AuthRequest, anonymous as unknown as Response, () => { calls++; });
+    assert.equal(anonymous.statusCode, 401);
+    assert.equal(calls, 4);
+  } finally { f.close(); }
+});
+
+test('kolon count limit: free capped at 10,000; trial mode and admins use the technical ceiling', () => {
+  const pro = { ...f0(), subscriptionTier: 'pro' as const };
+  assert.equal(kolonCountLimit(f0(), true), 10000);
+  assert.equal(kolonCountLimit(pro, true), 50000);
+  assert.equal(kolonCountLimit({ ...pro, subscriptionExpiresAt: '2000-01-01T00:00:00Z' }, true), 10000);
+  assert.equal(kolonCountLimit({ ...f0(), role: 'admin' }, true), MAX_KOLON_COUNT);
+  assert.equal(kolonCountLimit(f0(), false), MAX_KOLON_COUNT);
+  // 3^9 = 19,683 exceeds the free cap; 3^8 = 6,561 fits.
+  const picks = (n: number) => Array.from({ length: n }, (_, i) => ({ matchNumber: i + 1, outcomes: ['1', 'X', '2'] }));
+  assert.throws(() => validateKolonInputs(picks(9), kolonCountLimit(f0(), true)));
+  assert.equal(validateKolonInputs(picks(8), kolonCountLimit(f0(), true)).length, 8);
 });
 
 test('CORS permits only exact configured origins', () => {

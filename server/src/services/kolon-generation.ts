@@ -2,6 +2,8 @@ type Outcome = '1' | 'X' | '2';
 interface KolonInput { matchNumber: number; outcomes: Outcome[]; }
 export interface Kolon { id: number; predictions: Outcome[]; }
 export class KolonInputError extends Error {}
+// Technical ceiling for every tier, admins and trial mode included.
+export const MAX_KOLON_COUNT = 500000;
 
 export function validateKolonInputs(value: unknown, maxCount: number): KolonInput[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 15) {
