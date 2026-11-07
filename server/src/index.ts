@@ -2,6 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import cors from 'cors';
+import { allowedOrigins, corsPolicy } from './auth/cors-policy';
+import { configureTrustProxy } from './auth/proxy-policy';
 import cookieParser from 'cookie-parser';
 import { initDatabase } from './db/database';
 import { requireAuth } from './auth/auth-middleware';
@@ -17,6 +19,7 @@ import footballRouter from './routes/football';
 import publicFootballRouter from './routes/public-football';
 import historyRouter from './routes/history';
 import couponsRouter from './routes/coupons';
+import kolonsRouter from './routes/kolons';
 import friendsRouter from './routes/friends';
 import { getCached } from './scraper/cache';
 import { scrapeMatches } from './scraper/nesine-scraper';
@@ -25,6 +28,7 @@ import liveTrackingRouter from './routes/live-tracking';
 import { whatsappService } from './services/whatsapp-service';
 
 const app = express();
+configureTrustProxy(app);
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
 function warmMatchesCache(): void {
@@ -40,7 +44,16 @@ function warmMatchesCache(): void {
 // Initialize database
 initDatabase();
 
-app.use(cors({ credentials: true, origin: true }));
+const origins = allowedOrigins();
+app.use((req, res, next) => {
+  const origin = req.get('Origin');
+  if (origin && !origins.has(origin)) {
+    res.status(403).json({ error: 'Origin not allowed.' });
+    return;
+  }
+  next();
+});
+app.use(cors(corsPolicy(origins)));
 app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
 
@@ -70,6 +83,7 @@ app.use('/api/football', publicFootballRouter);
 app.use('/api', requireAuth as any);
 app.use('/api', matchesRouter);
 app.use('/api', statsRouter);
+app.use('/api', kolonsRouter);
 app.use('/api/football', footballRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api', historyRouter);

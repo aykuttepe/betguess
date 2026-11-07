@@ -1,3 +1,4 @@
+import { COUPON_LIMITS, effectiveTier } from '../auth/subscription-policy';
 import { Router } from 'express';
 import {
   deleteCoupon,
@@ -6,19 +7,13 @@ import {
   saveCoupon,
   shareCouponWithUser,
 } from '../db/coupon-repository';
-import { AuthRequest, SubscriptionTier } from '../auth/types';
+import { AuthRequest } from '../auth/types';
 import { getSavedCouponCount } from '../db/usage-repository';
 import { isSubscriptionSystemActive } from '../db/settings-repository';
 import { findByUsernameOrEmail } from '../db/user-repository';
 import { areFriends } from '../db/friend-repository';
 import { createNotification } from '../db/notification-repository';
 import { attachCouponSnapshot } from '../services/coupon-snapshot-service';
-
-const COUPON_LIMITS: Record<SubscriptionTier, number> = {
-  free: 3,
-  pro: 20,
-  premium: -1, // unlimited
-};
 
 const router = Router();
 
@@ -34,7 +29,7 @@ router.post('/', (req: AuthRequest, res) => {
 
     // Check coupon save limit (only when subscription system is active)
     if (isSubscriptionSystemActive() && req.user?.role !== 'admin') {
-      const tier = (req.user?.subscriptionTier || 'free') as SubscriptionTier;
+      const tier = effectiveTier(req.user!);
       const limit = COUPON_LIMITS[tier];
       if (limit !== -1) {
         const currentCount = getSavedCouponCount(userId);

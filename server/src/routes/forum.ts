@@ -1,3 +1,4 @@
+import { TIER_LIMITS_CONFIG } from '../auth/subscription-policy';
 import { Router, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -179,7 +180,7 @@ router.get('/topics/:id', optionalAuth as any, (req: AuthRequest, res: Response)
 });
 
 // POST /topics — auth required
-const forumTopicLimitMiddleware = requireUsageLimit('forum_topic', { free: 2, pro: 10, premium: -1 });
+const forumTopicLimitMiddleware = requireUsageLimit('forum_topic', TIER_LIMITS_CONFIG.forum_topic);
 
 router.post('/topics',
   requireAuth as any,
@@ -320,7 +321,7 @@ router.post('/topics/:id/reactions', requireAuth as any, (req: AuthRequest, res:
 // ─── Comments ─────────────────────────────────────────────────────────────────
 
 // POST /topics/:id/comments — auth required
-const forumCommentLimitMiddleware = requireUsageLimit('forum_comment', { free: 5, pro: -1, premium: -1 });
+const forumCommentLimitMiddleware = requireUsageLimit('forum_comment', TIER_LIMITS_CONFIG.forum_comment);
 
 router.post('/topics/:id/comments',
   requireAuth as any,

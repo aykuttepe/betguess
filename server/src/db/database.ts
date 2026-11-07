@@ -1,60 +1,53 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { applyLegacySchema } from './legacy-schema';
 
 const DATA_DIR = path.join(__dirname, '../../data');
 const DB_PATH = path.join(DATA_DIR, 'betguess.db');
-const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
+let db: Database.Database | undefined;
 
-let db: Database.Database;
-
-/**
- * Ensures the database is initialized and all migrations are applied.
- */
-export function initDatabase(): Database.Database {
-  if (db) return db;
-
+export function migrateDatabase(connection: Database.Database): void {
+  // Foreign-key mode must change outside a transaction for legacy table rebuilds.
+  connection.pragma('foreign_keys = OFF');
   try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    db = new Database(DB_PATH);
-    
-    // Performance & Integrity Optimizations
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    db.pragma('synchronous = NORMAL');
+    connection.transaction(() => {
+      connection.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)');
+      if (!connection.prepare('SELECT 1 FROM schema_migrations WHERE version = 1').get()) {
+        applyLegacySchema(connection);
+        connection.prepare('INSERT INTO schema_migrations VALUES (?)').run(1);
+      }
+      if (!connection.prepare('SELECT 1 FROM schema_migrations WHERE version = 2').get()) {
+        connection.exec(`ALTER TABLE otp_codes ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+          CREATE TABLE auth_rate_limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, reset_at INTEGER NOT NULL);`);
+        connection.prepare('INSERT INTO schema_migrations VALUES (?)').run(2);
+      }
+      if ((connection.pragma('foreign_key_check') as unknown[]).length) {
+        throw new Error('Database migration failed foreign_key_check');
+      }
+    })();
+  } finally {
+    connection.pragma('foreign_keys = ON');
+  }
+}
 
-    applyMigrations();
-
-    console.log('[DB] SQLite database initialized and migrated:', DB_PATH);
-    return db;
+// An explicit filename lets integration tests use the real repositories in isolation.
+export function initDatabase(filename = DB_PATH): Database.Database {
+  if (db?.open) return db;
+  if (filename !== ':memory:') fs.mkdirSync(path.dirname(filename), { recursive: true });
+  const connection = new Database(filename);
+  try {
+    connection.pragma('journal_mode = WAL');
+    migrateDatabase(connection);
+    db = connection;
+    return connection;
   } catch (error) {
-    console.error('[DB] Critical error during database initialization:', error);
+    connection.close();
     throw error;
   }
 }
 
-/**
- * Simple migration runner that applies SQL files from the migrations directory.
- */
-function applyMigrations() {
-  const files = fs.readdirSync(MIGRATIONS_DIR)
-    .filter(f => f.endsWith('.sql'))
-    .sort();
-
-  for (const file of files) {
-    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
-    try {
-      db.exec(sql);
-    } catch (e) {
-      console.error(`[DB] Migration failed in ${file}:`, e);
-      // In a production environment, you might want to stop the app here.
-    }
-  }
-}
-
 export function getDatabase(): Database.Database {
-  if (!db) {
-    throw new Error('Database not initialized. Please call initDatabase() first.');
-  }
+  if (!db?.open) throw new Error('Database not initialized. Please call initDatabase() first.');
   return db;
 }

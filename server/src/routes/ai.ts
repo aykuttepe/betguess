@@ -1,3 +1,4 @@
+import { TIER_LIMITS_CONFIG } from '../auth/subscription-policy';
 import { Router, Response } from 'express';
 import {
     analyzeMatch,
@@ -17,7 +18,7 @@ const router = Router();
 // Mac analizi — Pro: 15/gun, Premium: sinirsiz
 router.post('/match-analysis',
     requireSubscription('pro') as any,
-    requireUsageLimit('ai_match', { free: 0, pro: 15, premium: -1 }) as any,
+    requireUsageLimit('ai_match', TIER_LIMITS_CONFIG.ai_match) as any,
     async (req: AuthRequest, res: Response) => {
     const { homeTeam, awayTeam, league } = req.body;
     if (!homeTeam || !awayTeam) {
@@ -35,7 +36,7 @@ router.post('/match-analysis',
 // Takim analizi — Pro: 10/gun, Premium: sinirsiz
 router.post('/team-analysis',
     requireSubscription('pro') as any,
-    requireUsageLimit('ai_team', { free: 0, pro: 10, premium: -1 }) as any,
+    requireUsageLimit('ai_team', TIER_LIMITS_CONFIG.ai_team) as any,
     async (req: AuthRequest, res: Response) => {
     const { team, league } = req.body;
     if (!team) {
@@ -53,7 +54,7 @@ router.post('/team-analysis',
 // Lig analizi — Pro: 10/gun, Premium: sinirsiz
 router.post('/league-analysis',
     requireSubscription('pro') as any,
-    requireUsageLimit('ai_league', { free: 0, pro: 10, premium: -1 }) as any,
+    requireUsageLimit('ai_league', TIER_LIMITS_CONFIG.ai_league) as any,
     async (req: AuthRequest, res: Response) => {
     const { leagueLabel, standingsSummary } = req.body;
     if (!leagueLabel) {
@@ -71,7 +72,7 @@ router.post('/league-analysis',
 // Transfer analizi — Pro: 10/gun, Premium: sinirsiz
 router.post('/transfer-analysis',
     requireSubscription('pro') as any,
-    requireUsageLimit('ai_transfer', { free: 0, pro: 10, premium: -1 }) as any,
+    requireUsageLimit('ai_transfer', TIER_LIMITS_CONFIG.ai_transfer) as any,
     async (req: AuthRequest, res: Response) => {
     const { leagueLabel, teamsSummary } = req.body;
     if (!leagueLabel) {
@@ -89,7 +90,7 @@ router.post('/transfer-analysis',
 // Oyuncu analizi — Pro: 10/gun, Premium: sinirsiz
 router.post('/player-analysis',
     requireSubscription('pro') as any,
-    requireUsageLimit('ai_player', { free: 0, pro: 10, premium: -1 }) as any,
+    requireUsageLimit('ai_player', TIER_LIMITS_CONFIG.ai_player) as any,
     async (req: AuthRequest, res: Response) => {
     const { playerName, playerInfo } = req.body;
     if (!playerName) {
@@ -107,7 +108,7 @@ router.post('/player-analysis',
 // Toplu mac analizi — Pro: 5/gun, Premium: 20/gun
 router.post('/bulk-analysis',
     requireSubscription('pro') as any,
-    requireUsageLimit('ai_bulk', { free: 0, pro: 5, premium: 20 }) as any,
+    requireUsageLimit('ai_bulk', TIER_LIMITS_CONFIG.ai_bulk) as any,
     async (req: AuthRequest, res: Response) => {
     const { matches, league } = req.body;
     if (!matches || !Array.isArray(matches)) {
