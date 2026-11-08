@@ -1,0 +1,35 @@
+{
+  "$comment": "Accepted high/critical npm audit advisories (production deps). Each entry needs a reason, owner and expiry; an expired entry fails CI. Triage: 2026-11-08, PR aykuttepe/betguess#1.",
+  "server": [
+    {
+      "package": "extract-zip",
+      "advisories": ["GHSA-jmr9-qjv8-65gv", "GHSA-7pqw-9j4j-h8q3"],
+      "reason": "whatsapp-web.js -> puppeteer -> @puppeteer/browsers. Only extracts the Chromium archive downloaded from Google's CDN at install time; never handles user-supplied archives. No fixed release exists.",
+      "owner": "Claude backend",
+      "expires": "2027-02-08"
+    },
+    {
+      "package": "basic-ftp",
+      "advisories": ["GHSA-6v7q-wjvx-w8wg", "GHSA-chqc-8p9q-pq6q", "GHSA-rp42-5vxx-qpwr", "GHSA-rpmf-866q-6p89", "GHSA-c475-qrg2-pj4r"],
+      "reason": "whatsapp-web.js -> puppeteer -> proxy-agent -> get-uri. Only used for ftp:// proxy/PAC URLs during browser download; no FTP proxy is configured. Every 5.x release is affected and get-uri still requires ^5.",
+      "owner": "Claude backend",
+      "expires": "2027-02-08"
+    },
+    {
+      "package": "zod",
+      "advisories": ["GHSA-mrhx-c7xc-m3w5"],
+      "reason": "whatsapp-web.js -> puppeteer -> chromium-bidi. Validates WebDriver BiDi messages from the local Chromium process only; puppeteer uses CDP by default. Fix needs zod 4 (major), pinned by chromium-bidi.",
+      "owner": "Claude backend",
+      "expires": "2027-02-08"
+    }
+  ],
+  "client": [
+    {
+      "package": "react-router",
+      "advisories": ["GHSA-49rj-9fvp-4h2h", "GHSA-8646-j5j9-6r62", "GHSA-8x6r-g9mw-2r78", "GHSA-rxv8-25v2-qmq8", "GHSA-chx6-hx7r-mcp5", "GHSA-qwww-vcr4-c8h2"],
+      "reason": "Framework/SSR/RSC-mode advisories; the app is a client-only SPA using <BrowserRouter>. A fix exists within ^7.13.1 (7.18.2+); short expiry until the Codex-owned update lands.",
+      "owner": "Codex frontend",
+      "expires": "2026-11-22"
+    }
+  ]
+}

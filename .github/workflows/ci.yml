@@ -71,7 +71,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   dependency-audit:
-    name: Dependency audit (report only until triaged)
+    name: Dependency audit
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -83,9 +83,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-      # Report-only for now (P0 plan, pending owner decision): existing findings are untriaged.
-      # Gate D is NOT passed while this step is non-blocking; make it blocking after triage.
-      - name: npm audit (high and critical)
+      - name: Audit gate self-test
+        run: node --test scripts/audit-gate.test.mjs
+      # Blocking: fails on any high/critical production advisory not accepted, unexpired,
+      # in security/audit-exceptions.json. Full report kept below for context.
+      - name: npm audit gate (high and critical)
+        run: node scripts/audit-gate.mjs ${{ matrix.package }}
+      - name: npm audit full report
+        if: always()
         working-directory: ${{ matrix.package }}
-        continue-on-error: true
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --omit=dev || true
