@@ -216,14 +216,15 @@ export function saveOtp(targetKey: string, code: string, lifetimeMinutes = 5, pu
 
 export function verifyOtp(targetKey: string, code: string, purpose = 'phone_verification'): boolean {
   const db = getDatabase();
-  const result = db.prepare(`
-    SELECT * FROM otp_codes 
-    WHERE target_key = ? AND purpose = ? AND code = ? AND expires_at > datetime('now')
-  `).get(targetKey, purpose, code);
-
-  if (result) {
+  return db.transaction(() => {
+    const row = db.prepare(`SELECT id, code, attempts FROM otp_codes
+      WHERE target_key = ? AND purpose = ? AND expires_at > datetime('now')
+      ORDER BY id DESC LIMIT 1`).get(targetKey, purpose) as
+      { id: number; code: string; attempts: number } | undefined;
+    if (!row || row.attempts >= 5) return false;
+    db.prepare('UPDATE otp_codes SET attempts = attempts + 1 WHERE id = ?').run(row.id);
+    if (typeof code !== 'string' || !/^\d{6}$/.test(code) || code !== row.code) return false;
     db.prepare('DELETE FROM otp_codes WHERE target_key = ? AND purpose = ?').run(targetKey, purpose);
     return true;
-  }
-  return false;
+  })();
 }

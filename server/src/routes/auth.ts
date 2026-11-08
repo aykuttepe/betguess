@@ -1,9 +1,12 @@
-import { Router, Response } from 'express';
+import { TIER_LIMITS_CONFIG, COUPON_LIMITS, KOLON_LIMITS, HISTORY_LIMITS, effectiveTier } from '../auth/subscription-policy';
+import { isSubscriptionSystemActive } from '../db/settings-repository';
+import { Router, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
+import { authRateLimit, clearAccountRateLimit, userRateLimit } from '../middleware/auth-rate-limit';
 import { register, login, toPublicUser } from '../auth/auth-service';
 import { setAuthCookies, clearAuthCookies } from '../auth/cookie-utils';
 import { requireAuth } from '../auth/auth-middleware';
-import { AuthRequest, SubscriptionTier } from '../auth/types';
+import { AuthRequest } from '../auth/types';
 import { getLatestUsers, findByEmail, verifyOtp, markPhoneVerified, findById, getUserDetail } from '../db/user-repository';
 import { whatsappService } from '../services/whatsapp-service';
 import { getDatabase } from '../db/database';
@@ -14,6 +17,22 @@ import { getUserUsageSummary, getSavedCouponCount } from '../db/usage-repository
 
 const router = Router();
 
+// All windows are 15 minutes. Login: 30/IP, 10/account (cleared on success).
+const loginRateLimit = authRateLimit('login', 10);
+// Register: 10/IP, 3/email. Also bounds the WhatsApp OTP sent at sign-up.
+const registerRateLimit = authRateLimit('register', 3, 10);
+// Authenticated WhatsApp OTP sends: 3 per user across every send path.
+const otpSendRateLimit = userRateLimit('otp-send', 3);
+// Profile saves only send an OTP when the phone number actually changes.
+function otpSendRateLimitOnPhoneChange(req: AuthRequest, res: Response, next: NextFunction): void {
+  const requested = req.body?.phoneNumber;
+  if (typeof requested !== 'string' || !requested.trim() || arePhoneNumbersEquivalent(req.user?.phoneNumber, requested)) {
+    next();
+    return;
+  }
+  otpSendRateLimit(req, res, next);
+}
+
 router.get('/latest-users', (_req, res) => {
   try {
     const users = getLatestUsers(5);
@@ -23,7 +42,7 @@ router.get('/latest-users', (_req, res) => {
   }
 });
 
-router.post('/register', async (req, res) => {
+router.post('/register', registerRateLimit, async (req, res) => {
   try {
     const { email, username, password, phoneNumber } = req.body;
 
@@ -47,7 +66,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', loginRateLimit, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -57,6 +76,7 @@ router.post('/login', async (req, res) => {
     }
 
     const result = await login(email, password);
+    clearAccountRateLimit('login', email);
     setAuthCookies(res, result.accessToken, result.refreshToken);
 
     res.json({ user: toPublicUser(result.user) });
@@ -81,7 +101,7 @@ router.get('/whatsapp-info', requireAuth as any, (_req: AuthRequest, res: Respon
 });
 
 // Update phone number (or set for first time)
-router.post('/update-phone', requireAuth as any, async (req: AuthRequest, res: Response) => {
+router.post('/update-phone', requireAuth as any, otpSendRateLimit as any, async (req: AuthRequest, res: Response) => {
   try {
     const { phoneNumber } = req.body;
     if (!phoneNumber || phoneNumber.trim().length < 10) {
@@ -126,7 +146,7 @@ router.post('/update-phone', requireAuth as any, async (req: AuthRequest, res: R
 });
 
 // Send (or re-send) verification OTP
-router.post('/send-verification-otp', requireAuth as any, async (req: AuthRequest, res: Response) => {
+router.post('/send-verification-otp', requireAuth as any, otpSendRateLimit as any, async (req: AuthRequest, res: Response) => {
   try {
     const userRow = findById(req.user!.id);
     if (!userRow || !userRow.phone_number) {
@@ -176,7 +196,7 @@ router.post('/verify-phone', requireAuth as any, (req: AuthRequest, res: Respons
   }
 });
 
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', authRateLimit('forgot-password', 3), async (req, res) => {
   try {
     const { email, phoneNumber } = req.body;
     if (!email || !phoneNumber) {
@@ -212,7 +232,7 @@ router.post('/forgot-password', async (req, res) => {
   }
 });
 
-router.post('/reset-password', async (req, res) => {
+router.post('/reset-password', authRateLimit('reset-password', 5), async (req, res) => {
   try {
     const { email, phoneNumber, code, newPassword } = req.body;
 
@@ -224,6 +244,11 @@ router.post('/reset-password', async (req, res) => {
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
     if (!normalizedPhone.isValid || !normalizedPhone.normalizedPhone) {
       res.status(400).json({ error: normalizedPhone.reason ?? 'Gecerli bir telefon numarasi girin.' });
+      return;
+    }
+
+    if (typeof newPassword !== 'string' || newPassword.length < 6 || Buffer.byteLength(newPassword) > 72) {
+      res.status(400).json({ error: 'Yeni sifre en az 6 karakter, en fazla 72 byte olmalidir.' });
       return;
     }
 
@@ -243,6 +268,7 @@ router.post('/reset-password', async (req, res) => {
     const db = getDatabase();
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, user.id);
 
+    clearAuthCookies(res);
     res.json({ message: 'Sifreniz basariyla guncellendi. Yeni sifrenizle giris yapabilirsiniz.' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -272,7 +298,7 @@ router.get('/profile', requireAuth as any, (req: AuthRequest, res: Response) => 
   }
 });
 
-router.patch('/profile', requireAuth as any, (req: AuthRequest, res: Response) => {
+router.patch('/profile', requireAuth as any, otpSendRateLimitOnPhoneChange as any, (req: AuthRequest, res: Response) => {
   void (async () => {
     try {
       const result = await updateOwnProfile({
@@ -323,6 +349,7 @@ router.post('/change-password', requireAuth as any, async (req: AuthRequest, res
     const db = getDatabase();
     db.prepare('UPDATE users SET password_hash = ?, updated_at = datetime(\'now\') WHERE id = ?').run(hash, req.user!.id);
 
+    clearAuthCookies(res);
     res.json({ message: 'Sifreniz basariyla guncellendi.' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -331,40 +358,11 @@ router.post('/change-password', requireAuth as any, async (req: AuthRequest, res
 
 // ─── Subscription usage status ──────────────────────────────────────────────
 
-const TIER_LIMITS_CONFIG: Record<string, Record<SubscriptionTier, number>> = {
-  ai_match:      { free: 0,  pro: 15,  premium: -1 },
-  ai_team:       { free: 0,  pro: 10,  premium: -1 },
-  ai_league:     { free: 0,  pro: 10,  premium: -1 },
-  ai_bulk:       { free: 0,  pro: 5,   premium: 20 },
-  ai_player:     { free: 0,  pro: 10,  premium: -1 },
-  ai_transfer:   { free: 0,  pro: 10,  premium: -1 },
-  forum_topic:   { free: 2,  pro: 10,  premium: -1 },
-  forum_comment: { free: 5,  pro: -1,  premium: -1 },
-  kolon_generate: { free: 5, pro: -1,  premium: -1 },
-};
-
-const COUPON_LIMITS: Record<SubscriptionTier, number> = {
-  free: 3,
-  pro: 20,
-  premium: -1,
-};
-
-const KOLON_LIMITS: Record<SubscriptionTier, number> = {
-  free: -1,      // free: unlimited per generation, but 5 uses/day
-  pro: 50000,
-  premium: 500000,
-};
-
-const HISTORY_LIMITS: Record<SubscriptionTier, number> = {
-  free: 10,
-  pro: 50,
-  premium: 200,
-};
-
 router.get('/usage-status', requireAuth as any, (req: AuthRequest, res: Response) => {
   try {
     const user = req.user!;
-    const tier = user.subscriptionTier as SubscriptionTier;
+    const tier = effectiveTier(user);
+    const unrestricted = user.role === 'admin' || !isSubscriptionSystemActive();
     const usage = getUserUsageSummary(user.id);
     const savedCoupons = getSavedCouponCount(user.id);
 
@@ -374,26 +372,26 @@ router.get('/usage-status', requireAuth as any, (req: AuthRequest, res: Response
     for (const [action, tierLimits] of Object.entries(TIER_LIMITS_CONFIG)) {
       limits[action] = {
         used: usage[action] || 0,
-        limit: tierLimits[tier],
+        limit: unrestricted ? -1 : tierLimits[tier],
       };
     }
 
     // Saved coupons (not daily, total)
     limits['saved_coupons'] = {
       used: savedCoupons,
-      limit: COUPON_LIMITS[tier],
+      limit: unrestricted ? -1 : COUPON_LIMITS[tier],
     };
 
     // Kolon limit
     limits['kolon'] = {
       used: 0, // tracked client-side per generation
-      limit: KOLON_LIMITS[tier],
+      limit: unrestricted ? -1 : KOLON_LIMITS[tier],
     };
 
     // History limit
     limits['history'] = {
       used: 0,
-      limit: HISTORY_LIMITS[tier],
+      limit: unrestricted ? -1 : HISTORY_LIMITS[tier],
     };
 
     res.json({

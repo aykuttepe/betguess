@@ -1,10 +1,21 @@
 import bcrypt from 'bcrypt';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { AuthUser, JwtPayload, RefreshPayload, UserRole, SubscriptionTier } from './types';
 import { UserRow, createUser, findByEmail, findById, emailExists, usernameExists } from '../db/user-repository';
 import { normalizePhoneNumber } from '../services/phone-number';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'betguess-dev-secret-change-in-prod';
+const JWT_SECRET = process.env.JWT_SECRET?.trim();
+if (!JWT_SECRET || Buffer.byteLength(JWT_SECRET) < 32) {
+  throw new Error('JWT_SECRET must contain at least 32 bytes.');
+}
+const signingSecret: string = JWT_SECRET;
+
+function sessionVersion(userId: number): string {
+  const row = findById(userId);
+  if (!row) throw new Error('Invalid session.');
+  return createHmac('sha256', signingSecret).update(row.password_hash).digest('hex');
+}
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_EXPIRY = '7d';
 const BCRYPT_ROUNDS = 10;
@@ -108,29 +119,41 @@ export function generateTokens(user: AuthUser): { accessToken: string; refreshTo
     userId: user.id,
     email: user.email,
     role: user.role,
+    type: 'access',
+    sessionVersion: sessionVersion(user.id),
   };
 
   const refreshPayload: RefreshPayload = {
     userId: user.id,
     type: 'refresh',
+    sessionVersion: accessPayload.sessionVersion,
   };
 
-  const accessToken = jwt.sign(accessPayload, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
-  const refreshToken = jwt.sign(refreshPayload, JWT_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRY });
+  const accessToken = jwt.sign(accessPayload, signingSecret, { expiresIn: ACCESS_TOKEN_EXPIRY });
+  const refreshToken = jwt.sign(refreshPayload, signingSecret, { expiresIn: REFRESH_TOKEN_EXPIRY });
 
   return { accessToken, refreshToken };
 }
 
+function verifySessionToken(token: string, type: 'access' | 'refresh') {
+  const payload = jwt.verify(token, signingSecret, { algorithms: ['HS256'] });
+  if (typeof payload === 'string' || payload.type !== type ||
+      !Number.isSafeInteger(payload.userId) || payload.userId <= 0 ||
+      typeof payload.sessionVersion !== 'string') throw new Error('Invalid token.');
+  const expected = Buffer.from(sessionVersion(payload.userId));
+  const actual = Buffer.from(payload.sessionVersion);
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+    throw new Error('Session revoked.');
+  }
+  return payload;
+}
+
 export function verifyAccessToken(token: string): JwtPayload {
-  return jwt.verify(token, JWT_SECRET) as JwtPayload;
+  return verifySessionToken(token, 'access') as JwtPayload;
 }
 
 export function verifyRefreshToken(token: string): RefreshPayload {
-  const payload = jwt.verify(token, JWT_SECRET) as RefreshPayload;
-  if (payload.type !== 'refresh') {
-    throw new Error('Gecersiz refresh token.');
-  }
-  return payload;
+  return verifySessionToken(token, 'refresh') as RefreshPayload;
 }
 
 export function getUserById(id: number): AuthUser | null {

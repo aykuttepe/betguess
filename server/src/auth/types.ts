@@ -17,12 +17,15 @@ export interface AuthUser {
 }
 
 export interface JwtPayload {
+  type: 'access';
+  sessionVersion: string;
   userId: number;
   email: string;
   role: UserRole;
 }
 
 export interface RefreshPayload {
+  sessionVersion: string;
   userId: number;
   type: 'refresh';
 }

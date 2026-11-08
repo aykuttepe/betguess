@@ -1,0 +1,5 @@
+# Project-local suggested defaults; desktop app effective permissions may differ.
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+[sandbox_workspace_write]
+network_access = false

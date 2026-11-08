@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { saveOtp } from '../db/user-repository';
 import {
   WhatsAppDeliveryErrorPayload,
@@ -23,7 +24,7 @@ export interface DispatchOtpResult {
 }
 
 export function createOtpCode(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return randomInt(100000, 1000000).toString();
 }
 
 export async function dispatchWhatsAppOtp(

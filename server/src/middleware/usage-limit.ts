@@ -1,74 +1,47 @@
 import { Response, NextFunction } from 'express';
-import { AuthRequest, SubscriptionTier } from '../auth/types';
-import { getUsageToday, incrementUsage } from '../db/usage-repository';
+import { AuthRequest } from '../auth/types';
+import { effectiveTier } from '../auth/subscription-policy';
+import { isSubscriptionSystemActive } from '../db/settings-repository';
+import { getDatabase } from '../db/database';
 
-export interface TierLimits {
-  free: number;   // 0 = blocked entirely
-  pro: number;    // -1 = unlimited
-  premium: number;
-}
+export interface TierLimits { free: number; pro: number; premium: number; }
 
-/**
- * Middleware factory that enforces daily usage limits per subscription tier.
- *
- * Limit values:
- *   0  → feature is blocked for this tier (returns 403)
- *  -1  → unlimited usage (still tracked for analytics)
- *  >0  → daily limit; returns 429 when exceeded
- *
- * Admin users bypass all limits.
- */
 export function requireUsageLimit(actionType: string, limits: TierLimits) {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
     const user = req.user;
-    if (!user) {
-      res.status(401).json({ error: 'Oturum gerekli.' });
-      return;
-    }
-
-    // Admin bypass
-    if (user.role === 'admin') {
-      incrementUsage(user.id, actionType);
-      next();
-      return;
-    }
-
-    const tier = user.subscriptionTier as SubscriptionTier;
+    if (!user) { res.status(401).json({ error: 'Oturum gerekli.' }); return; }
+    if (user.role === 'admin' || !isSubscriptionSystemActive()) { next(); return; }
+    const tier = effectiveTier(user);
     const limit = limits[tier];
-
-    // Feature blocked for this tier
     if (limit === 0) {
-      const suggestedTier = tier === 'free' ? 'pro' : 'premium';
-      res.status(403).json({
-        error: 'Bu ozellik aboneliginiz kapsaminda degildir.',
-        requiredTier: suggestedTier,
-        feature: actionType,
-      });
+      res.status(403).json({ error: 'Bu ozellik aboneliginiz kapsaminda degildir.', requiredTier: tier === 'free' ? 'pro' : 'premium', feature: actionType });
       return;
     }
-
-    // Unlimited
-    if (limit === -1) {
-      incrementUsage(user.id, actionType);
-      next();
+    const date = new Date().toISOString().slice(0, 10);
+    const db = getDatabase();
+    // Reserve atomically so parallel requests cannot all pass the last available slot.
+    const used = db.transaction(() => {
+      const row = db.prepare('SELECT count FROM usage_limits WHERE user_id = ? AND action_type = ? AND date = ?')
+        .get(user.id, actionType, date) as { count: number } | undefined;
+      const count = row?.count ?? 0;
+      if (limit !== -1 && count >= limit) return count;
+      db.prepare(`INSERT INTO usage_limits (user_id, action_type, date, count) VALUES (?, ?, ?, 1)
+        ON CONFLICT(user_id, action_type, date) DO UPDATE SET count = count + 1`).run(user.id, actionType, date);
+      return -1;
+    }).immediate();
+    if (used !== -1) {
+      res.status(429).json({ error: 'Gunluk kullanim limitine ulastiniz.', limit, used, requiredTier: tier === 'free' ? 'pro' : 'premium', feature: actionType });
       return;
     }
-
-    // Check daily limit
-    const currentCount = getUsageToday(user.id, actionType);
-    if (currentCount >= limit) {
-      const suggestedTier = tier === 'free' ? 'pro' : tier === 'pro' ? 'premium' : 'premium';
-      res.status(429).json({
-        error: `Gunluk ${actionType} limitinize ulastiniz (${currentCount}/${limit}).`,
-        limit,
-        used: currentCount,
-        requiredTier: suggestedTier,
-        feature: actionType,
-      });
-      return;
-    }
-
-    incrementUsage(user.id, actionType);
-    next();
+    let settled = false;
+    const settle = (success: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (!success) db.prepare(`UPDATE usage_limits SET count = MAX(0, count - 1)
+        WHERE user_id = ? AND action_type = ? AND date = ?`).run(user.id, actionType, date);
+    };
+    res.once('finish', () => settle(res.statusCode >= 200 && res.statusCode < 300));
+    res.once('close', () => settle(res.writableFinished && res.statusCode >= 200 && res.statusCode < 300));
+    try { next(); } catch (error) { settle(false); throw error; }
   };
 }

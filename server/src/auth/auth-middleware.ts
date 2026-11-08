@@ -1,3 +1,5 @@
+import { effectiveTier } from './subscription-policy';
+import { isSubscriptionSystemActive } from '../db/settings-repository';
 import { Response, NextFunction } from 'express';
 import { AuthRequest, SubscriptionTier } from './types';
 import { verifyAccessToken, verifyRefreshToken, getUserById, generateTokens } from './auth-service';
@@ -96,34 +98,23 @@ export function requireSubscription(minTier: SubscriptionTier) {
       const user = req.user!;
 
       // Admin bypass — admins have unrestricted access
-      if (user.role === 'admin') {
+      if (user.role === 'admin' || !isSubscriptionSystemActive()) {
         next();
         return;
       }
 
-      const userLevel = TIER_LEVELS[user.subscriptionTier];
+      const tier = effectiveTier(user);
+      const userLevel = TIER_LEVELS[tier];
       const requiredLevel = TIER_LEVELS[minTier];
 
       if (userLevel < requiredLevel) {
         res.status(403).json({
-          error: `Bu ozellik ${minTier} abonelik gerektirir. Mevcut aboneliginiz: ${user.subscriptionTier}`,
+          error: `Bu ozellik ${minTier} abonelik gerektirir. Mevcut aboneliginiz: ${tier}`,
           requiredTier: minTier,
-          currentTier: user.subscriptionTier,
+          currentTier: tier,
+          expired: tier !== user.subscriptionTier,
         });
         return;
-      }
-
-      // Check expiration
-      if (user.subscriptionTier !== 'free' && user.subscriptionExpiresAt) {
-        const expiresAt = new Date(user.subscriptionExpiresAt + 'Z');
-        if (expiresAt < new Date()) {
-          res.status(403).json({
-            error: 'Aboneliginiz sona ermis. Lutfen yenileyin.',
-            requiredTier: minTier,
-            expired: true,
-          });
-          return;
-        }
       }
 
       next();
